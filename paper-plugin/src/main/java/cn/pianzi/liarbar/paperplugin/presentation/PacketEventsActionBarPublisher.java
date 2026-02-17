@@ -8,9 +8,11 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerActionBar;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -146,7 +148,8 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
     }
 
     private void publishToPlayer(Player player, UserFacingEvent event) {
-        String resolvedMessage = i18n.t(event.message(), event.data());
+        Map<String, Object> localizedData = localizePlayerPlaceholders(event.data());
+        String resolvedMessage = i18n.t(event.message(), localizedData);
         String tag = COLOR_TAGS.getOrDefault(event.severity(), "gray");
         String escaped = MiniMessageSupport.escape(resolvedMessage);
         // Pre-size: <tag> + escaped + </tag> ≈ tag*2 + escaped + 5 overhead
@@ -170,6 +173,48 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
                 plugin.getLogger().warning("PacketEvents 发送消息失败，已切换为仅 Bukkit 消息方式: " + rootMessage(throwable));
             }
         }
+    }
+
+    private Map<String, Object> localizePlayerPlaceholders(Map<String, Object> original) {
+        if (original == null || original.isEmpty()) {
+            return Map.of();
+        }
+        HashMap<String, Object> data = HashMap.newHashMap(original.size() + 4);
+        data.putAll(original);
+        localizePlayerField(data, "player", original.get("playerId"));
+        localizePlayerField(data, "winner", original.get("winner"));
+        localizePlayerField(data, "challenger", original.get("challenger"));
+        localizePlayerField(data, "lastPlayer", original.get("lastPlayer"));
+        return data;
+    }
+
+    private void localizePlayerField(Map<String, Object> data, String displayKey, Object idRaw) {
+        String name = resolvePlayerName(idRaw);
+        if (name != null && !name.isBlank()) {
+            data.put(displayKey, name);
+        }
+    }
+
+    private String resolvePlayerName(Object raw) {
+        UUID id = asUuid(raw);
+        if (id == null) {
+            if (raw == null) {
+                return null;
+            }
+            String text = String.valueOf(raw);
+            return text.isBlank() ? null : text;
+        }
+
+        Player online = Bukkit.getPlayer(id);
+        if (online != null) {
+            return online.getName();
+        }
+        OfflinePlayer offline = Bukkit.getOfflinePlayer(id);
+        if (offline.getName() != null && !offline.getName().isBlank()) {
+            return offline.getName();
+        }
+        String text = id.toString();
+        return text.substring(0, 8);
     }
 
     private String rootMessage(Throwable throwable) {

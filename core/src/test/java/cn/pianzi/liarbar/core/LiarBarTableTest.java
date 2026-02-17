@@ -71,6 +71,25 @@ class LiarBarTableTest {
     }
 
     @Test
+    void shouldNotStartWithOnlyOnePlayerAfterJoinTimeout() {
+        LiarBarTable table = new LiarBarTable(
+                "single_wait",
+                testConfig(),
+                EconomyPort.noop(),
+                new SeededRandomSource(31L)
+        );
+        UUID host = UUID.randomUUID();
+        table.join(host);
+        table.selectMode(host, TableMode.LIFE_ONLY);
+
+        List<CoreEvent> events = table.tickSecond();
+
+        assertEquals(GamePhase.JOINING, table.snapshot().phase());
+        assertTrue(!containsEvent(events, CoreEventType.DEAL_COMPLETED));
+        assertTrue(!containsEvent(events, CoreEventType.GAME_FINISHED));
+    }
+
+    @Test
     void shouldReturnToIdleWithoutGameFinishedWhenJoinTimeoutHasNoPlayers() {
         LiarBarTable table = new LiarBarTable(
                 "join_timeout_empty",

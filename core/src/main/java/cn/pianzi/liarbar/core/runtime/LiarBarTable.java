@@ -29,6 +29,7 @@ public final class LiarBarTable {
     private static final List<CardRank> MAIN_RANKS = List.of(CardRank.A, CardRank.Q, CardRank.K);
     private static final int MIN_WAGER = 1;
     private static final int MAX_WAGER = 1_000_000;
+    private static final int MIN_PLAYERS_TO_START = 2;
 
     private final String tableId;
     private final TableConfig config;
@@ -371,7 +372,14 @@ public final class LiarBarTable {
             }
             case JOINING -> {
                 if (phaseSeconds >= config.joinSeconds()) {
-                    events.addAll(startInitialDeal("join_timeout"));
+                    if (alivePlayersCount() == 0) {
+                        cancelToIdle("join_timeout:no_players", events);
+                    } else if (hasEnoughPlayersToStart()) {
+                        events.addAll(startInitialDeal("join_timeout"));
+                    } else {
+                        // Keep lobby open and restart countdown when player count is insufficient.
+                        phaseSeconds = 0;
+                    }
                 }
             }
             case DEALING -> {
@@ -455,6 +463,10 @@ public final class LiarBarTable {
         List<CoreEvent> events = new ArrayList<>();
         if (alivePlayersCount() == 0) {
             cancelToIdle(reason + ":no_players", events);
+            return events;
+        }
+        if (!hasEnoughPlayersToStart()) {
+            phaseSeconds = 0;
             return events;
         }
         for (PlayerState state : players.values()) {
@@ -966,6 +978,10 @@ public final class LiarBarTable {
             }
         }
         return count;
+    }
+
+    private boolean hasEnoughPlayersToStart() {
+        return alivePlayersCount() >= MIN_PLAYERS_TO_START;
     }
 
     private int firstOpenSeat() {

@@ -37,7 +37,6 @@ import java.util.function.Consumer;
 public final class ModeSelectionDialogGui {
 
     private static final String INPUT_MODE = "mode";
-    private static final String INPUT_WAGER = "wager";
 
     private final JavaPlugin plugin;
     private final PaperCommandFacade commandFacade;
@@ -83,7 +82,7 @@ public final class ModeSelectionDialogGui {
                 .tooltip(parse(i18n.t("ui.mode_gui.confirm_hint")))
                 .width(180)
                 .action(DialogAction.customClick(
-                        (response, audience) -> handleConfirm(playerId, session, response.getText(INPUT_MODE), response.getFloat(INPUT_WAGER), audience),
+                        (response, audience) -> handleConfirm(playerId, session, response.getText(INPUT_MODE), audience),
                         ClickCallback.Options.builder()
                                 .uses(1)
                                 .lifetime(Duration.ofMinutes(2))
@@ -112,13 +111,7 @@ public final class ModeSelectionDialogGui {
         );
 
         List<DialogInput> inputs = List.of(
-                DialogInput.singleOption(INPUT_MODE, parse(i18n.t("ui.mode_gui.mode_input_label")), modeOptions).build(),
-                DialogInput.numberRange(INPUT_WAGER, parse(i18n.t("ui.mode_gui.wager_input_label")), 1, 1_000_000)
-                        .width(320)
-                        .initial(1F)
-                        .step(1F)
-                        .labelFormat("%s: %s")
-                        .build()
+                DialogInput.singleOption(INPUT_MODE, parse(i18n.t("ui.mode_gui.mode_input_label")), modeOptions).build()
         );
 
         DialogBase base = DialogBase.builder(parse(i18n.t("ui.mode_gui.title")))
@@ -134,7 +127,7 @@ public final class ModeSelectionDialogGui {
         );
     }
 
-    private void handleConfirm(UUID playerId, Session session, String rawMode, Float rawWager, Audience audience) {
+    private void handleConfirm(UUID playerId, Session session, String rawMode, Audience audience) {
         if (!(audience instanceof Player player)) {
             return;
         }
@@ -152,11 +145,7 @@ public final class ModeSelectionDialogGui {
             return;
         }
 
-        int wager = 1;
-        if (mode == TableMode.KUNKUN_COIN && rawWager != null) {
-            wager = Math.round(rawWager);
-        }
-        selectMode(player, session.tableId(), mode, wager);
+        selectMode(player, session.tableId(), mode, 1);
     }
 
     private void selectMode(Player player, String tableId, TableMode mode, int wager) {
@@ -164,11 +153,23 @@ public final class ModeSelectionDialogGui {
         future.whenComplete((outcome, throwable) ->
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     if (throwable != null) {
-                        sendFailed(player, localizedReason(throwable));
+                        String reason = localizedReason(throwable);
+                        if ("insufficient_balance".equals(reason) && mode == TableMode.KUNKUN_COIN) {
+                            sendFailed(player, i18n.t("command.mode.money_insufficient_switch"));
+                            open(player, tableId);
+                            return;
+                        }
+                        sendFailed(player, reason);
                         return;
                     }
                     if (!outcome.success()) {
-                        sendFailed(player, outcome.message());
+                        String reason = localizedReasonText(outcome.message());
+                        if ("insufficient_balance".equals(reason) && mode == TableMode.KUNKUN_COIN) {
+                            sendFailed(player, i18n.t("command.mode.money_insufficient_switch"));
+                            open(player, tableId);
+                            return;
+                        }
+                        sendFailed(player, reason);
                         return;
                     }
 
@@ -192,12 +193,15 @@ public final class ModeSelectionDialogGui {
     }
 
     private String localizedReason(Throwable throwable) {
-        String reason = rootMessage(throwable);
+        return localizedReasonText(rootMessage(throwable));
+    }
+
+    private String localizedReasonText(String reason) {
         if ("only_host_can_select_mode".equals(reason)) {
             return i18n.t("command.mode.host_only");
         }
         if ("insufficient_balance".equals(reason)) {
-            return i18n.t("command.join.insufficient_balance");
+            return "insufficient_balance";
         }
         if ("invalid_wager_amount".equals(reason)) {
             return i18n.t("command.mode.invalid_wager_range");

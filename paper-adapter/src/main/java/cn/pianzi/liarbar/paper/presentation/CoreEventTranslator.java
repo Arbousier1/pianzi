@@ -130,7 +130,7 @@ public final class CoreEventTranslator {
                     EventSeverity.SUCCESS,
                     "event.game_finished",
                     typeName,
-                    withEntries(data, Map.of("winner", shortPlayer(data.get("winner"))))
+                    data
             );
             case HAND_DEALT -> {
                 UUID target = asUuid(data.get("playerId"));

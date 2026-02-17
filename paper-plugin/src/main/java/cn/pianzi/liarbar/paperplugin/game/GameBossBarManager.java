@@ -102,6 +102,9 @@ public final class GameBossBarManager {
         String tableId = asString(event.data().get("tableId"));
         if (playerId == null || tableId == null) return;
 
+        // Prevent stacked duplicate boss bars if the same player re-joins/re-binds.
+        removeBarForPlayer(playerId);
+
         playerTables.put(playerId, tableId);
         tablePlayerSets.computeIfAbsent(tableId, k -> ConcurrentHashMap.newKeySet()).add(playerId);
         playerBullets.put(playerId, MAX_BULLETS); // default bullets
