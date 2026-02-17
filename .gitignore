@@ -1,4 +1,9 @@
-# Maven / Java build output
+# Gradle build output
+build/
+**/build/
+.gradle/
+
+# Maven / Java build output (legacy)
 target/
 **/target/
 *.class

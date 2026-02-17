@@ -615,7 +615,9 @@ public final class LiarBarTable {
         preferredShooters.clear();
         setPhase(GamePhase.FINISHED, events, reason);
         Map<String, Object> payload = new HashMap<>();
-        payload.put("winner", winner);
+        if (winner != null) {
+            payload.put("winner", winner);
+        }
         payload.put("mode", mode.name());
         payload.put("joinedCount", joinedCount);
         payload.put("reason", reason);

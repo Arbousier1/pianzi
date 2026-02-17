@@ -1,0 +1,26 @@
+name: LiarBar
+version: '${version}'
+main: cn.pianzi.liarbar.paperplugin.bootstrap.LiarBarPaperPlugin
+description: Liar's Bar Minecraft minigame
+api-version: '1.21.11'
+authors:
+  - Pianzi
+
+dependencies:
+  server:
+    Vault:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    packetevents:
+      load: BEFORE
+      required: false
+      join-classpath: true
+
+permissions:
+  liarbar.use:
+    description: Access player gameplay commands
+    default: true
+  liarbar.admin:
+    description: Access admin commands
+    default: "op"

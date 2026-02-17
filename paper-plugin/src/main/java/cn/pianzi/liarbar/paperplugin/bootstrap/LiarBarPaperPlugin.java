@@ -154,7 +154,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         tableService.tick(settings.tableId()).whenComplete((events, throwable) ->
                 getServer().getScheduler().runTask(this, () -> {
                     if (throwable != null) {
-                        getLogger().warning("牌桌 tick 执行失败: " + rootMessage(throwable));
+                        getLogger().log(java.util.logging.Level.WARNING, "牌桌 tick 执行失败", throwable);
                         return;
                     }
                     statsService.handleEvents(events);
