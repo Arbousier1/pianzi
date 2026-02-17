@@ -20,7 +20,7 @@ dependencies:
 permissions:
   liarbar.use:
     description: Access player gameplay commands
-    default: true
+    default: "true"
   liarbar.admin:
     description: Access admin commands
     default: "op"

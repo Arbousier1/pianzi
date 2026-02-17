@@ -1,6 +1,6 @@
 plugins {
     id("io.papermc.paperweight.userdev") version "2.0.0-beta.19"
-    id("com.gradleup.shadow") version "9.0.0-beta12"
+    id("com.gradleup.shadow") version "9.3.1"
 }
 
 dependencies {
@@ -22,11 +22,17 @@ paperweight.reobfArtifactConfiguration =
 
 tasks {
     shadowJar {
-        // Shade internal modules into the final JAR
+        // Shade internal modules + runtime libs into the final JAR
         dependencies {
             include(project(":core"))
             include(project(":paper-adapter"))
+            include(dependency("com.h2database:h2"))
+            include(dependency("org.mariadb.jdbc:mariadb-java-client"))
+            include(dependency("com.zaxxer:HikariCP"))
         }
+
+        // Note: relocate disabled — Shadow's bundled ASM does not yet support Java 25 (class version 69)
+        // relocate("com.zaxxer.hikari", "cn.pianzi.liarbar.libs.hikari")
 
         // Exclude signature files
         exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")

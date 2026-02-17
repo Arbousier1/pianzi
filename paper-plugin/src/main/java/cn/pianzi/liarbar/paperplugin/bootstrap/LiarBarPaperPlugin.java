@@ -78,7 +78,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         rewardService = new DatapackParityRewardService(this, i18n);
 
         if (!registerCommands()) {
-            getLogger().severe("注册 /liarbar 命令失败，插件将被禁用。请检查 plugin.yml 是否正确。");
+            getLogger().severe("注册 /liarbar 命令失败，插件将被禁用。请检查 paper-plugin.yml 是否正确。");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
