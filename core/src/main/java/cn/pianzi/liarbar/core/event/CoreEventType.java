@@ -12,7 +12,7 @@ public enum CoreEventType {
     CHALLENGE_RESOLVED,
     SHOT_RESOLVED,
     PLAYER_ELIMINATED,
-    GAME_FINISHED
+    GAME_FINISHED,
+    HAND_DEALT
 }
-
 

@@ -451,6 +451,29 @@ public final class LiarBarTable {
                         "alivePlayers", alivePlayersCount()
                 )
         ));
+
+        // Emit HAND_DEALT per player so the presentation layer can show cards
+        for (PlayerState state : alivePlayerStatesInSeatOrder()) {
+            List<Map<String, Object>> cardList = state.hand.stream()
+                    .map(card -> Map.<String, Object>of(
+                            "id", card.id(),
+                            "rank", card.rank().name(),
+                            "demon", card.demon()
+                    ))
+                    .toList();
+            events.add(CoreEvent.of(
+                    CoreEventType.HAND_DEALT,
+                    "hand dealt",
+                    Map.of(
+                            "playerId", state.id,
+                            "seat", state.seat,
+                            "cards", cardList,
+                            "mainRank", mainRank.name(),
+                            "round", round
+                    )
+            ));
+        }
+
         return events;
     }
 

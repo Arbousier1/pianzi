@@ -12,8 +12,13 @@ import cn.pianzi.liarbar.paper.presentation.PacketEventsViewBridge;
 import cn.pianzi.liarbar.paperplugin.command.LiarBarCommandExecutor;
 import cn.pianzi.liarbar.paperplugin.config.PluginSettings;
 import cn.pianzi.liarbar.paperplugin.config.TableConfigLoader;
+import cn.pianzi.liarbar.paperplugin.game.ClickableCardPresenter;
 import cn.pianzi.liarbar.paperplugin.game.DatapackParityRewardService;
+import cn.pianzi.liarbar.paperplugin.game.GameEffectsManager;
+import cn.pianzi.liarbar.paperplugin.game.GameBossBarManager;
 import cn.pianzi.liarbar.paperplugin.game.TablePlayerConnectionListener;
+import cn.pianzi.liarbar.paperplugin.game.TableSeatManager;
+import cn.pianzi.liarbar.paperplugin.game.TableStructureBuilder;
 import cn.pianzi.liarbar.paperplugin.i18n.I18n;
 import cn.pianzi.liarbar.paperplugin.integration.packet.PacketEventsLifecycle;
 import cn.pianzi.liarbar.paperplugin.integration.vault.VaultGatewayFactory;
@@ -46,6 +51,11 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
     private TableConfig tableConfig;
     private EconomyPort economyPort;
     private RandomSource randomSource;
+    private TableStructureBuilder structureBuilder;
+    private TableSeatManager seatManager;
+    private GameBossBarManager bossBarManager;
+    private ClickableCardPresenter cardPresenter;
+    private GameEffectsManager effectsManager;
     private BukkitTask tickTask;
 
     @Override
@@ -78,6 +88,11 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         randomSource = RandomSource.threadLocal();
 
         tableService = new TableApplicationService();
+        structureBuilder = new TableStructureBuilder();
+        seatManager = new TableSeatManager(this, structureBuilder);
+        bossBarManager = new GameBossBarManager();
+        cardPresenter = new ClickableCardPresenter();
+        effectsManager = new GameEffectsManager(this, structureBuilder);
         getLogger().info("No table is auto-created. Use /liarbar create as OP at your current location.");
 
         StatsRepository statsRepository = createStatsRepository(settings.databaseConfig());
@@ -113,6 +128,26 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         if (tickTask != null) {
             tickTask.cancel();
             tickTask = null;
+        }
+
+        if (effectsManager != null) {
+            effectsManager.removeAll();
+            effectsManager = null;
+        }
+
+        if (bossBarManager != null) {
+            bossBarManager.removeAll();
+            bossBarManager = null;
+        }
+
+        if (seatManager != null) {
+            seatManager.removeAll();
+            seatManager = null;
+        }
+
+        if (structureBuilder != null) {
+            structureBuilder.demolishAll();
+            structureBuilder = null;
         }
 
         if (tableService != null) {
@@ -205,6 +240,9 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                         if (!result.events().isEmpty()) {
                             statsService.handleEvents(result.events());
                             rewardService.handleEvents(result.events());
+                            bossBarManager.handleEvents(result.events());
+                            cardPresenter.handleEvents(result.events());
+                            effectsManager.handleEvents(result.events());
                             viewBridge.publishAll(result.events());
                         }
                     }
@@ -221,11 +259,22 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                 economyPort,
                 randomSource
         );
+        if (created) {
+            structureBuilder.build(tableId, player.getLocation());
+            seatManager.spawnSeats(tableId);
+        }
         return new LiarBarCommandExecutor.CreateTableResult(tableId, created);
     }
 
     private boolean deleteTable(String tableId) {
-        return tableService.removeTable(tableId);
+        boolean removed = tableService.removeTable(tableId);
+        if (removed) {
+            bossBarManager.removeTable(tableId);
+            effectsManager.removeTable(tableId);
+            seatManager.removeSeats(tableId);
+            structureBuilder.demolish(tableId);
+        }
+        return removed;
     }
 
     private List<String> tableIds() {

@@ -1,0 +1,274 @@
+package cn.pianzi.liarbar.paperplugin.game;
+
+import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
+import net.kyori.adventure.bossbar.BossBar;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Per-player boss bar showing bullets remaining, hand size, main rank, and current turn.
+ * Updated reactively from UserFacingEvents.
+ */
+public final class GameBossBarManager {
+
+    private static final String EVENT_TYPE_KEY = "_eventType";
+
+    /** playerId → active boss bar */
+    private final Map<UUID, BossBar> activeBars = new ConcurrentHashMap<>();
+
+    /** playerId → tableId (tracks which table a player is in) */
+    private final Map<UUID, String> playerTables = new ConcurrentHashMap<>();
+
+    /** tableId → current main rank */
+    private final Map<String, String> tableMainRank = new ConcurrentHashMap<>();
+
+    /** tableId → current turn player UUID */
+    private final Map<String, UUID> tableTurn = new ConcurrentHashMap<>();
+
+    /** playerId → bullets remaining */
+    private final Map<UUID, Integer> playerBullets = new ConcurrentHashMap<>();
+
+    /** playerId → hand size */
+    private final Map<UUID, Integer> playerHandSize = new ConcurrentHashMap<>();
+
+    public void handleEvents(List<UserFacingEvent> events) {
+        for (UserFacingEvent event : events) {
+            String eventType = String.valueOf(event.data().get(EVENT_TYPE_KEY));
+            switch (eventType) {
+                case "PLAYER_JOINED" -> onPlayerJoined(event);
+                case "DEAL_COMPLETED" -> onDealCompleted(event);
+                case "HAND_DEALT" -> onHandDealt(event);
+                case "TURN_CHANGED" -> onTurnChanged(event);
+                case "CARDS_PLAYED" -> onCardsPlayed(event);
+                case "SHOT_RESOLVED" -> onShotResolved(event);
+                case "PLAYER_ELIMINATED" -> onPlayerEliminated(event);
+                case "GAME_FINISHED" -> onGameFinished(event);
+                case "PLAYER_FORFEITED" -> onPlayerForfeited(event);
+            }
+        }
+    }
+
+    /**
+     * Remove all boss bars for players at a specific table (used on table delete).
+     */
+    public void removeTable(String tableId) {
+        for (Map.Entry<UUID, String> entry : List.copyOf(playerTables.entrySet())) {
+            if (tableId.equals(entry.getValue())) {
+                removeBarForPlayer(entry.getKey());
+            }
+        }
+        tableMainRank.remove(tableId);
+        tableTurn.remove(tableId);
+    }
+
+    public void removeAll() {
+        for (Map.Entry<UUID, BossBar> entry : activeBars.entrySet()) {
+            Player player = Bukkit.getPlayer(entry.getKey());
+            if (player != null) {
+                player.hideBossBar(entry.getValue());
+            }
+        }
+        activeBars.clear();
+        playerTables.clear();
+        tableMainRank.clear();
+        tableTurn.clear();
+        playerBullets.clear();
+        playerHandSize.clear();
+    }
+
+    private void onPlayerJoined(UserFacingEvent event) {
+        UUID playerId = asUuid(event.data().get("playerId"));
+        String tableId = asString(event.data().get("tableId"));
+        if (playerId == null || tableId == null) return;
+
+        playerTables.put(playerId, tableId);
+        playerBullets.put(playerId, 6); // default 6 bullets
+        playerHandSize.put(playerId, 0);
+
+        BossBar bar = BossBar.bossBar(
+                Component.text("等待开始...", NamedTextColor.YELLOW),
+                1.0f,
+                BossBar.Color.YELLOW,
+                BossBar.Overlay.NOTCHED_6
+        );
+        activeBars.put(playerId, bar);
+
+        Player player = Bukkit.getPlayer(playerId);
+        if (player != null) {
+            player.showBossBar(bar);
+        }
+    }
+
+    private void onDealCompleted(UserFacingEvent event) {
+        String tableId = asString(event.data().get("tableId"));
+        String mainRank = asString(event.data().get("mainRank"));
+        if (tableId == null) return;
+        if (mainRank != null) {
+            tableMainRank.put(tableId, mainRank);
+        }
+    }
+
+    private void onHandDealt(UserFacingEvent event) {
+        UUID playerId = asUuid(event.data().get("playerId"));
+        if (playerId == null) return;
+
+        Object cardsObj = event.data().get("cards");
+        if (cardsObj instanceof List<?> cards) {
+            playerHandSize.put(playerId, cards.size());
+        }
+        refreshBar(playerId);
+    }
+
+    private void onTurnChanged(UserFacingEvent event) {
+        String tableId = asString(event.data().get("tableId"));
+        UUID turnPlayer = asUuid(event.data().get("playerId"));
+        if (tableId == null) return;
+
+        tableTurn.put(tableId, turnPlayer);
+
+        // Refresh all players at this table
+        for (Map.Entry<UUID, String> entry : playerTables.entrySet()) {
+            if (tableId.equals(entry.getValue())) {
+                refreshBar(entry.getKey());
+            }
+        }
+    }
+
+    private void onCardsPlayed(UserFacingEvent event) {
+        UUID playerId = asUuid(event.data().get("playerId"));
+        int count = asInt(event.data().get("count"), 0);
+        if (playerId == null) return;
+
+        playerHandSize.merge(playerId, -count, Integer::sum);
+        if (playerHandSize.getOrDefault(playerId, 0) < 0) {
+            playerHandSize.put(playerId, 0);
+        }
+        refreshBar(playerId);
+    }
+
+    private void onShotResolved(UserFacingEvent event) {
+        UUID playerId = asUuid(event.data().get("playerId"));
+        if (playerId == null) return;
+
+        int remaining = asInt(event.data().get("bulletsRemaining"), -1);
+        if (remaining >= 0) {
+            playerBullets.put(playerId, remaining);
+        } else {
+            // Decrement by 1 if no explicit count
+            playerBullets.merge(playerId, -1, Integer::sum);
+        }
+        refreshBar(playerId);
+    }
+
+    private void onPlayerEliminated(UserFacingEvent event) {
+        UUID playerId = asUuid(event.data().get("playerId"));
+        if (playerId == null) return;
+        removeBarForPlayer(playerId);
+    }
+
+    private void onPlayerForfeited(UserFacingEvent event) {
+        UUID playerId = asUuid(event.data().get("playerId"));
+        if (playerId == null) return;
+        removeBarForPlayer(playerId);
+    }
+
+    private void onGameFinished(UserFacingEvent event) {
+        String tableId = asString(event.data().get("tableId"));
+        if (tableId == null) return;
+
+        // Remove bars for all players at this table
+        for (Map.Entry<UUID, String> entry : List.copyOf(playerTables.entrySet())) {
+            if (tableId.equals(entry.getValue())) {
+                removeBarForPlayer(entry.getKey());
+            }
+        }
+        tableMainRank.remove(tableId);
+        tableTurn.remove(tableId);
+    }
+
+    private void refreshBar(UUID playerId) {
+        BossBar bar = activeBars.get(playerId);
+        if (bar == null) return;
+
+        String tableId = playerTables.get(playerId);
+        String mainRank = tableId != null ? tableMainRank.getOrDefault(tableId, "?") : "?";
+        int bullets = playerBullets.getOrDefault(playerId, 6);
+        int hand = playerHandSize.getOrDefault(playerId, 0);
+        UUID turnPlayer = tableId != null ? tableTurn.get(tableId) : null;
+        boolean isMyTurn = playerId.equals(turnPlayer);
+
+        // Build boss bar title: "🎯 主牌: K | 🃏 手牌: 3 | 🔫 子弹: 4/6 | ▶ 你的回合"
+        Component title = Component.empty()
+                .append(Component.text("🎯 主牌: ", NamedTextColor.GOLD))
+                .append(Component.text(mainRank, NamedTextColor.WHITE, TextDecoration.BOLD))
+                .append(Component.text(" | ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("🃏 手牌: ", NamedTextColor.AQUA))
+                .append(Component.text(hand, NamedTextColor.WHITE))
+                .append(Component.text(" | ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("🔫 子弹: ", NamedTextColor.RED))
+                .append(Component.text(bullets + "/6", NamedTextColor.WHITE));
+
+        if (isMyTurn) {
+            title = title
+                    .append(Component.text(" | ", NamedTextColor.DARK_GRAY))
+                    .append(Component.text("▶ 你的回合", NamedTextColor.GREEN, TextDecoration.BOLD));
+        }
+
+        bar.name(title);
+
+        // Progress = bullets / 6
+        float progress = Math.max(0f, Math.min(1f, bullets / 6f));
+        bar.progress(progress);
+
+        // Color based on bullets
+        if (bullets <= 1) {
+            bar.color(BossBar.Color.RED);
+        } else if (bullets <= 3) {
+            bar.color(BossBar.Color.YELLOW);
+        } else {
+            bar.color(BossBar.Color.GREEN);
+        }
+    }
+
+    private void removeBarForPlayer(UUID playerId) {
+        BossBar bar = activeBars.remove(playerId);
+        if (bar != null) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null) {
+                player.hideBossBar(bar);
+            }
+        }
+        playerTables.remove(playerId);
+        playerBullets.remove(playerId);
+        playerHandSize.remove(playerId);
+    }
+
+    private UUID asUuid(Object raw) {
+        if (raw instanceof UUID uuid) return uuid;
+        if (raw instanceof String text) {
+            try { return UUID.fromString(text); } catch (IllegalArgumentException ignored) {}
+        }
+        return null;
+    }
+
+    private String asString(Object raw) {
+        return raw != null ? String.valueOf(raw) : null;
+    }
+
+    private int asInt(Object raw, int fallback) {
+        if (raw instanceof Number n) return n.intValue();
+        if (raw instanceof String s) {
+            try { return Integer.parseInt(s); } catch (NumberFormatException ignored) {}
+        }
+        return fallback;
+    }
+}

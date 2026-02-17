@@ -83,6 +83,15 @@ public final class CoreEventTranslator {
                     "Game finished. Winner: " + shortPlayer(event.data().get("winner")),
                     data
             );
+            case HAND_DEALT -> {
+                UUID target = asUuid(event.data().get("playerId"));
+                yield UserFacingEvent.personal(
+                        EventSeverity.INFO,
+                        "Your hand has been dealt (round " + event.data().getOrDefault("round", "?") + ")",
+                        target,
+                        data
+                );
+            }
         };
     }
 
@@ -105,6 +114,20 @@ public final class CoreEventTranslator {
             return text.substring(0, 8);
         }
         return text;
+    }
+
+    private UUID asUuid(Object raw) {
+        if (raw instanceof UUID uuid) {
+            return uuid;
+        }
+        if (raw instanceof String text) {
+            try {
+                return UUID.fromString(text);
+            } catch (IllegalArgumentException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private String modeName(Object value) {
