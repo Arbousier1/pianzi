@@ -16,6 +16,10 @@ dependencies:
       load: BEFORE
       required: false
       join-classpath: true
+    GSit:
+      load: BEFORE
+      required: false
+      join-classpath: false
 
 permissions:
   liarbar.use:

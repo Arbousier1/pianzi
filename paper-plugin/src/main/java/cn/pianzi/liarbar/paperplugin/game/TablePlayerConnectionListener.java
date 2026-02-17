@@ -16,15 +16,18 @@ import java.util.function.Consumer;
 public final class TablePlayerConnectionListener implements Listener {
     private final JavaPlugin plugin;
     private final TableApplicationService tableService;
+    private final TableSeatManager seatManager;
     private final Consumer<List<UserFacingEvent>> eventSink;
 
     public TablePlayerConnectionListener(
             JavaPlugin plugin,
             TableApplicationService tableService,
+            TableSeatManager seatManager,
             Consumer<List<UserFacingEvent>> eventSink
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.tableService = Objects.requireNonNull(tableService, "tableService");
+        this.seatManager = Objects.requireNonNull(seatManager, "seatManager");
         this.eventSink = Objects.requireNonNull(eventSink, "eventSink");
     }
 
@@ -39,7 +42,9 @@ public final class TablePlayerConnectionListener implements Listener {
     }
 
     private void handleDisconnect(UUID playerId) {
-        for (String tableId : tableService.tableIds()) {
+        String seatedTableId = seatManager.tableOf(playerId);
+        List<String> targets = seatedTableId != null ? List.of(seatedTableId) : List.copyOf(tableService.tableIds());
+        for (String tableId : targets) {
             tableService.playerDisconnected(tableId, playerId).whenComplete((events, throwable) ->
                     plugin.getServer().getScheduler().runTask(plugin, () -> {
                         if (throwable != null) {

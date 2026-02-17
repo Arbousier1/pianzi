@@ -101,7 +101,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         tableService = new TableApplicationService();
         structureBuilder = new TableStructureBuilder();
         seatManager = new TableSeatManager(this, structureBuilder);
-        bossBarManager = new GameBossBarManager(i18n);
+        bossBarManager = new GameBossBarManager(i18n, seatManager);
         cardPresenter = new ClickableCardPresenter(i18n);
         effectsManager = new GameEffectsManager(structureBuilder, i18n);
         lobbyHologramManager = new TableLobbyHologramManager(structureBuilder, i18n);
@@ -111,7 +111,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         statsService = new LiarBarStatsService(this, statsRepository, settings.scoreRule());
 
         commandFacade = new PaperCommandFacade(tableService);
-        actionBarPublisher = new PacketEventsActionBarPublisher(this, i18n, packetEventsLifecycle.isReady());
+        actionBarPublisher = new PacketEventsActionBarPublisher(this, i18n, packetEventsLifecycle.isReady(), seatManager);
         viewBridge = new PacketEventsViewBridge(actionBarPublisher);
         rewardService = new DatapackParityRewardService(this, i18n);
         modeSelectionGui = new ModeSelectionDialogGui(this, commandFacade, this::applyEvents, i18n);
@@ -126,6 +126,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                 new TablePlayerConnectionListener(
                         this,
                         tableService,
+                        seatManager,
                         this::applyEvents
                 ),
                 this

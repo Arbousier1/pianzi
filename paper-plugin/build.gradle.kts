@@ -19,6 +19,7 @@ dependencies {
     implementation("org.mariadb.jdbc:mariadb-java-client:${rootProject.property("mariadbVersion")}")
     implementation("com.zaxxer:HikariCP:${rootProject.property("hikariVersion")}")
     implementation("com.github.ben-manes.caffeine:caffeine:${rootProject.property("caffeineVersion")}")
+    implementation("com.fasterxml.jackson.core:jackson-databind:${rootProject.property("jacksonDatabindVersion")}")
 }
 
 // Use Mojang mappings — no reobf needed for Paper 1.20.5+
@@ -41,6 +42,9 @@ tasks {
             include(dependency("org.mariadb.jdbc:mariadb-java-client"))
             include(dependency("com.zaxxer:HikariCP"))
             include(dependency("com.github.ben-manes.caffeine:caffeine"))
+            include(dependency("com.fasterxml.jackson.core:jackson-databind"))
+            include(dependency("com.fasterxml.jackson.core:jackson-core"))
+            include(dependency("com.fasterxml.jackson.core:jackson-annotations"))
         }
 
         // Note: relocate disabled — Shadow's bundled ASM does not yet support Java 25 (class version 69)

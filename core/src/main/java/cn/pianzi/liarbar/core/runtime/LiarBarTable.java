@@ -29,7 +29,6 @@ public final class LiarBarTable {
     private static final List<CardRank> MAIN_RANKS = List.of(CardRank.A, CardRank.Q, CardRank.K);
     private static final int MIN_WAGER = 1;
     private static final int MAX_WAGER = 1_000_000;
-    private static final int MIN_PLAYERS_TO_START = 2;
 
     private final String tableId;
     private final TableConfig config;
@@ -130,7 +129,8 @@ public final class LiarBarTable {
                 Map.of(
                         "actor", actor,
                         "mode", selectedMode.name(),
-                        "wagerPerPlayer", chargeAmount
+                        "wagerPerPlayer", chargeAmount,
+                        "maxPlayers", config.maxPlayers()
                 )
         ));
         setPhase(GamePhase.JOINING, events, "mode_selected");
@@ -168,7 +168,12 @@ public final class LiarBarTable {
         events.add(CoreEvent.of(
                 CoreEventType.PLAYER_JOINED,
                 "player joined",
-                Map.of("playerId", playerId, "seat", seat, "joinedCount", joinedCount)
+                Map.of(
+                        "playerId", playerId,
+                        "seat", seat,
+                        "joinedCount", joinedCount,
+                        "maxPlayers", config.maxPlayers()
+                )
         ));
         if (ownerId == null) {
             ownerId = playerId;
@@ -981,7 +986,7 @@ public final class LiarBarTable {
     }
 
     private boolean hasEnoughPlayersToStart() {
-        return alivePlayersCount() >= MIN_PLAYERS_TO_START;
+        return alivePlayersCount() >= config.maxPlayers();
     }
 
     private int firstOpenSeat() {

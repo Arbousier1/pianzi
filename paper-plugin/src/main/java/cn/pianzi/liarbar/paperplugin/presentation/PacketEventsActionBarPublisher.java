@@ -3,6 +3,7 @@ package cn.pianzi.liarbar.paperplugin.presentation;
 import cn.pianzi.liarbar.paper.presentation.EventSeverity;
 import cn.pianzi.liarbar.paper.presentation.PacketEventsPublisher;
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
+import cn.pianzi.liarbar.paperplugin.game.TableSeatManager;
 import cn.pianzi.liarbar.paperplugin.i18n.I18n;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerActionBar;
@@ -20,6 +21,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class PacketEventsActionBarPublisher implements PacketEventsPublisher {
+    private static final long DUPLICATE_WINDOW_MILLIS = 1_000L;
     private static final Map<EventSeverity, String> COLOR_TAGS = Map.of(
             EventSeverity.INFO, "gray",
             EventSeverity.SUCCESS, "green",
@@ -29,18 +31,23 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
 
     private final JavaPlugin plugin;
     private final I18n i18n;
+    private final TableSeatManager seatManager;
+    private final EventFingerprintEncoder fingerprintEncoder = new EventFingerprintEncoder();
     private boolean packetEventsReady;
     private boolean packetEventsFailureLogged;
 
-    /** tableId → set of player UUIDs currently at that table */
+    /** tableId -> set of player UUIDs currently at that table. */
     private final Map<String, Set<UUID>> tablePlayers = new ConcurrentHashMap<>();
-    /** playerId → tableId (reverse index) */
+    /** playerId -> tableId (reverse index). */
     private final Map<UUID, String> playerToTable = new ConcurrentHashMap<>();
+    /** playerId -> last sent fingerprint for duplicate suppression. */
+    private final Map<UUID, SentFingerprint> lastSent = new ConcurrentHashMap<>();
 
-    public PacketEventsActionBarPublisher(JavaPlugin plugin, I18n i18n, boolean packetEventsReady) {
+    public PacketEventsActionBarPublisher(JavaPlugin plugin, I18n i18n, boolean packetEventsReady, TableSeatManager seatManager) {
         this.plugin = plugin;
         this.i18n = i18n;
         this.packetEventsReady = packetEventsReady;
+        this.seatManager = seatManager;
     }
 
     @Override
@@ -64,9 +71,21 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
             return;
         }
 
-        // Broadcast: try to narrow to table participants only
         String tableId = asString(event.data().get("tableId"));
         if (tableId != null) {
+            if (seatManager != null) {
+                Set<UUID> seated = seatManager.seatedPlayersAtTable(tableId);
+                if (!seated.isEmpty()) {
+                    for (UUID pid : seated) {
+                        Player p = Bukkit.getPlayer(pid);
+                        if (p != null && p.isOnline()) {
+                            publishToPlayer(p, event);
+                        }
+                    }
+                    return;
+                }
+            }
+
             Set<UUID> players = tablePlayers.get(tableId);
             if (players != null && !players.isEmpty()) {
                 for (UUID pid : players) {
@@ -79,7 +98,6 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
             }
         }
 
-        // Fallback: no table tracking available, send to all
         for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
             publishToPlayer(onlinePlayer, event);
         }
@@ -90,6 +108,7 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
         if (removed != null) {
             for (UUID pid : removed) {
                 playerToTable.remove(pid);
+                lastSent.remove(pid);
             }
         }
     }
@@ -97,11 +116,14 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
     public void removeAll() {
         tablePlayers.clear();
         playerToTable.clear();
+        lastSent.clear();
     }
 
     private void trackMembership(UserFacingEvent event) {
         String type = event.eventType();
-        if (type == null) return;
+        if (type == null) {
+            return;
+        }
         switch (type) {
             case "PLAYER_JOINED" -> {
                 UUID pid = asUuid(event.data().get("playerId"));
@@ -115,9 +137,12 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
                 UUID pid = asUuid(event.data().get("playerId"));
                 if (pid != null) {
                     String tid = playerToTable.remove(pid);
+                    lastSent.remove(pid);
                     if (tid != null) {
                         Set<UUID> set = tablePlayers.get(tid);
-                        if (set != null) set.remove(pid);
+                        if (set != null) {
+                            set.remove(pid);
+                        }
                     }
                 }
             }
@@ -128,6 +153,7 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
                     if (removed != null) {
                         for (UUID pid : removed) {
                             playerToTable.remove(pid);
+                            lastSent.remove(pid);
                         }
                     }
                 }
@@ -136,9 +162,14 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
     }
 
     private UUID asUuid(Object raw) {
-        if (raw instanceof UUID uuid) return uuid;
+        if (raw instanceof UUID uuid) {
+            return uuid;
+        }
         if (raw instanceof String text) {
-            try { return UUID.fromString(text); } catch (IllegalArgumentException ignored) {}
+            try {
+                return UUID.fromString(text);
+            } catch (IllegalArgumentException ignored) {
+            }
         }
         return null;
     }
@@ -149,10 +180,14 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
 
     private void publishToPlayer(Player player, UserFacingEvent event) {
         Map<String, Object> localizedData = localizePlayerPlaceholders(event.data());
+        String fingerprint = fingerprintEncoder.encode(event, localizedData);
+        if (isDuplicate(player.getUniqueId(), fingerprint)) {
+            return;
+        }
+
         String resolvedMessage = i18n.t(event.message(), localizedData);
         String tag = COLOR_TAGS.getOrDefault(event.severity(), "gray");
         String escaped = MiniMessageSupport.escape(resolvedMessage);
-        // Pre-size: <tag> + escaped + </tag> ≈ tag*2 + escaped + 5 overhead
         StringBuilder sb = new StringBuilder(tag.length() * 2 + escaped.length() + 6);
         sb.append('<').append(tag).append('>').append(escaped).append("</").append(tag).append('>');
         String line = MiniMessageSupport.prefixed(sb.toString());
@@ -170,9 +205,21 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
             packetEventsReady = false;
             if (!packetEventsFailureLogged) {
                 packetEventsFailureLogged = true;
-                plugin.getLogger().warning("PacketEvents 发送消息失败，已切换为仅 Bukkit 消息方式: " + rootMessage(throwable));
+                plugin.getLogger().warning("PacketEvents actionbar failed, fallback to Bukkit message: " + rootMessage(throwable));
             }
         }
+    }
+
+    private boolean isDuplicate(UUID playerId, String fingerprint) {
+        long now = System.currentTimeMillis();
+        SentFingerprint previous = lastSent.get(playerId);
+        if (previous != null
+                && previous.fingerprint().equals(fingerprint)
+                && now - previous.sentAtMillis() <= DUPLICATE_WINDOW_MILLIS) {
+            return true;
+        }
+        lastSent.put(playerId, new SentFingerprint(fingerprint, now));
+        return false;
     }
 
     private Map<String, Object> localizePlayerPlaceholders(Map<String, Object> original) {
@@ -224,5 +271,8 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
         }
         String message = current.getMessage();
         return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
+    }
+
+    private record SentFingerprint(String fingerprint, long sentAtMillis) {
     }
 }

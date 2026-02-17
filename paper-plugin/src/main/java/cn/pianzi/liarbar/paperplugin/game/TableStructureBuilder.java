@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -134,6 +135,13 @@ public final class TableStructureBuilder {
     public Location locationOf(String tableId) {
         Location loc = tableLocations.get(tableId);
         return loc != null ? loc.clone() : null;
+    }
+
+    /**
+     * Snapshot all tracked table ids.
+     */
+    public Set<String> tableIds() {
+        return Set.copyOf(tableLocations.keySet());
     }
 
     private void setStair(World world, int x, int y, int z,

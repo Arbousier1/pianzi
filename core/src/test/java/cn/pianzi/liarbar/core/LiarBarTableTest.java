@@ -45,7 +45,7 @@ class LiarBarTableTest {
     }
 
     @Test
-    void shouldDealCardsAfterJoinTimeout() {
+    void shouldDealCardsWhenTableBecomesFull() {
         LiarBarTable table = new LiarBarTable(
                 "a",
                 testConfig(),
@@ -53,11 +53,10 @@ class LiarBarTableTest {
                 new SeededRandomSource(1L)
         );
         UUID host = UUID.randomUUID();
+        UUID p2 = UUID.randomUUID();
         table.join(host);
         table.selectMode(host, TableMode.LIFE_ONLY);
-        table.join(UUID.randomUUID());
-
-        table.tickSecond();
+        table.join(p2);
         GameSnapshot snapshot = table.snapshot();
 
         assertEquals(GamePhase.DEALING, snapshot.phase());
@@ -150,7 +149,6 @@ class LiarBarTableTest {
         table.join(host);
         table.selectMode(host, TableMode.LIFE_ONLY);
         table.join(UUID.randomUUID());
-        table.tickSecond(); // JOINING -> DEALING
         table.tickSecond(); // DEALING -> FIRST_TURN
 
         UUID first = table.snapshot().currentPlayer().orElseThrow();
@@ -176,7 +174,6 @@ class LiarBarTableTest {
         table.join(p1);
         table.selectMode(p1, TableMode.LIFE_ONLY);
         table.join(p2);
-        table.tickSecond();
         table.tickSecond();
 
         UUID first = table.snapshot().currentPlayer().orElseThrow();
@@ -234,7 +231,6 @@ class LiarBarTableTest {
         table.join(p1);
         table.selectMode(p1, TableMode.LIFE_ONLY);
         table.join(p2);
-        table.tickSecond(); // JOINING -> DEALING
         table.tickSecond(); // DEALING -> FIRST_TURN
 
         table.playerDisconnected(p2);
@@ -247,9 +243,22 @@ class LiarBarTableTest {
 
     @Test
     void shouldForfeitDisconnectedCurrentPlayerAndRedeal() {
+        TableConfig config = new TableConfig(
+                99,
+                1,
+                1,
+                30,
+                30,
+                1,
+                3,
+                5,
+                1,
+                3,
+                6
+        );
         LiarBarTable table = new LiarBarTable(
                 "disconnect",
-                testConfig(),
+                config,
                 EconomyPort.noop(),
                 new SeededRandomSource(13L)
         );
@@ -258,7 +267,6 @@ class LiarBarTableTest {
         table.selectMode(host, TableMode.LIFE_ONLY);
         table.join(UUID.randomUUID());
         table.join(UUID.randomUUID());
-        table.tickSecond(); // JOINING -> DEALING
         table.tickSecond(); // DEALING -> FIRST_TURN
 
         UUID current = table.snapshot().currentPlayer().orElseThrow();
@@ -280,7 +288,7 @@ class LiarBarTableTest {
                 30,
                 30,
                 1,
-                4,
+                3,
                 1,
                 1,
                 1,
@@ -297,7 +305,6 @@ class LiarBarTableTest {
         table.selectMode(host, TableMode.LIFE_ONLY);
         table.join(UUID.randomUUID());
         table.join(UUID.randomUUID());
-        table.tickSecond(); // JOINING -> DEALING
         table.tickSecond(); // DEALING -> FIRST_TURN
 
         UUID first = table.snapshot().currentPlayer().orElseThrow();
@@ -326,7 +333,7 @@ class LiarBarTableTest {
                 30,
                 30,
                 1,
-                4,
+                2,
                 1,
                 1,
                 1,
@@ -343,7 +350,6 @@ class LiarBarTableTest {
         table.join(host);
         table.selectMode(host, TableMode.LIFE_ONLY);
         table.join(UUID.randomUUID());
-        table.tickSecond();
         table.tickSecond();
 
         UUID first = table.snapshot().currentPlayer().orElseThrow();
@@ -389,7 +395,7 @@ class LiarBarTableTest {
                 30,
                 30,
                 1,
-                4,
+                2,
                 5,
                 1,
                 3,
@@ -413,7 +419,7 @@ class LiarBarTableTest {
                 30,
                 30,
                 1,
-                4,
+                2,
                 2,
                 1,
                 1,
@@ -424,7 +430,6 @@ class LiarBarTableTest {
         table.join(host);
         table.selectMode(host, TableMode.LIFE_ONLY);
         table.join(UUID.randomUUID());
-        table.tickSecond();
         table.tickSecond();
         return table;
     }

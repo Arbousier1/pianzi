@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class TableLobbyHologramManager {
 
-    private static final int MIN_PLAYERS_TO_START = 2;
+    private static final int DEFAULT_MAX_PLAYERS = 4;
     private static final double HOLOGRAM_Y_OFFSET = 1.55D;
 
     private final TableStructureBuilder structureBuilder;
@@ -74,6 +74,7 @@ public final class TableLobbyHologramManager {
                 case "MODE_SELECTED" -> {
                     state.selectedMode = asMode(event.data().get("mode"));
                     state.wagerPerPlayer = asInt(event.data().get("wagerPerPlayer"), 1);
+                    state.maxPlayers = asInt(event.data().get("maxPlayers"), state.maxPlayers);
                     state.phase = GamePhase.JOINING;
                     dirtyTables.add(tableId);
                 }
@@ -84,6 +85,7 @@ public final class TableLobbyHologramManager {
                         state.phase = GamePhase.JOINING;
                     }
                     state.joinedCount = asInt(event.data().get("joinedCount"), state.joinedCount + 1);
+                    state.maxPlayers = asInt(event.data().get("maxPlayers"), state.maxPlayers);
                     dirtyTables.add(tableId);
                 }
                 case "PLAYER_FORFEITED" -> {
@@ -100,6 +102,7 @@ public final class TableLobbyHologramManager {
                             state.joinedCount = 0;
                             state.selectedMode = null;
                             state.wagerPerPlayer = 1;
+                            state.maxPlayers = DEFAULT_MAX_PLAYERS;
                         }
                         dirtyTables.add(tableId);
                     }
@@ -214,7 +217,7 @@ public final class TableLobbyHologramManager {
             );
         }
 
-        int needMore = Math.max(0, MIN_PLAYERS_TO_START - state.joinedCount);
+        int needMore = Math.max(0, state.maxPlayers - state.joinedCount);
         Component countLine = needMore > 0
                 ? parse(i18n.t("ui.hologram.joining.need_more", Map.of("count", needMore)))
                 : parse(i18n.t("ui.hologram.joining.ready"));
@@ -320,6 +323,7 @@ public final class TableLobbyHologramManager {
     private static final class LobbyState {
         private int joinedCount;
         private int wagerPerPlayer;
+        private int maxPlayers;
         private GamePhase phase;
         private TableMode selectedMode;
 
@@ -328,6 +332,7 @@ public final class TableLobbyHologramManager {
             state.phase = GamePhase.MODE_SELECTION;
             state.joinedCount = 0;
             state.wagerPerPlayer = 1;
+            state.maxPlayers = DEFAULT_MAX_PLAYERS;
             state.selectedMode = null;
             return state;
         }
@@ -336,6 +341,7 @@ public final class TableLobbyHologramManager {
             phase = GamePhase.MODE_SELECTION;
             joinedCount = 0;
             wagerPerPlayer = 1;
+            maxPlayers = DEFAULT_MAX_PLAYERS;
             selectedMode = null;
         }
     }
