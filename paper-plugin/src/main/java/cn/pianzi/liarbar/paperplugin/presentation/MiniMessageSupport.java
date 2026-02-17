@@ -5,6 +5,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 
 public final class MiniMessageSupport {
     private static final MiniMessage MINI_MESSAGE = MiniMessage.miniMessage();
+    private static volatile String prefix = "<gray>[<gold>Liar's Bar</gold>]</gray>";
 
     private MiniMessageSupport() {
     }
@@ -21,7 +22,13 @@ public final class MiniMessageSupport {
     }
 
     public static String prefixed(String message) {
-        return "<gray>[<gold>骗子酒馆</gold>]</gray> " + message;
+        return prefix + " " + message;
+    }
+
+    public static void setPrefix(String prefixText) {
+        if (prefixText == null || prefixText.isBlank()) {
+            return;
+        }
+        prefix = prefixText;
     }
 }
-

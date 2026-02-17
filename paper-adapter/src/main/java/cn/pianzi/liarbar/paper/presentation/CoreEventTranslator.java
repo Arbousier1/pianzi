@@ -21,75 +21,92 @@ public final class CoreEventTranslator {
         return switch (type) {
             case MODE_SELECTED -> UserFacingEvent.broadcast(
                     EventSeverity.INFO,
-                    "Mode selected: " + modeName(event.data().get("mode")),
-                    data
+                    "event.mode_selected",
+                    withEntries(data, Map.of("mode", modeName(event.data().get("mode"))))
             );
             case PLAYER_JOINED -> UserFacingEvent.broadcast(
                     EventSeverity.SUCCESS,
-                    "Player " + shortPlayer(event.data().get("playerId"))
-                            + " joined (seat " + event.data().getOrDefault("seat", "?") + ")",
-                    data
+                    "event.player_joined",
+                    withEntries(data, Map.of(
+                            "player", shortPlayer(event.data().get("playerId")),
+                            "seat", event.data().getOrDefault("seat", "?")
+                    ))
             );
             case PLAYER_FORFEITED -> UserFacingEvent.broadcast(
                     EventSeverity.WARNING,
-                    "Player " + shortPlayer(event.data().get("playerId")) + " disconnected and forfeited",
-                    data
+                    "event.player_forfeited",
+                    withEntries(data, Map.of("player", shortPlayer(event.data().get("playerId"))))
             );
             case PHASE_CHANGED -> UserFacingEvent.broadcast(
                     EventSeverity.INFO,
-                    "Phase changed to " + event.data().getOrDefault("phase", "UNKNOWN"),
-                    data
+                    "event.phase_changed",
+                    withEntries(data, Map.of("phase", event.data().getOrDefault("phase", "?")))
             );
             case DEAL_COMPLETED -> UserFacingEvent.broadcast(
                     EventSeverity.INFO,
-                    "Deal complete: main=" + event.data().getOrDefault("mainRank", "?")
-                            + ", round=" + event.data().getOrDefault("round", "?"),
-                    data
+                    "event.deal_completed",
+                    withEntries(data, Map.of(
+                            "mainRank", event.data().getOrDefault("mainRank", "?"),
+                            "round", event.data().getOrDefault("round", "?")
+                    ))
             );
             case TURN_CHANGED -> UserFacingEvent.broadcast(
                     EventSeverity.INFO,
-                    "Turn: " + shortPlayer(event.data().get("playerId")),
-                    data
+                    "event.turn_changed",
+                    withEntries(data, Map.of("player", shortPlayer(event.data().get("playerId"))))
             );
             case FORCE_CHALLENGE -> UserFacingEvent.broadcast(
                     EventSeverity.WARNING,
-                    "Force challenge triggered",
+                    "event.force_challenge",
                     data
             );
             case CARDS_PLAYED -> UserFacingEvent.broadcast(
                     EventSeverity.INFO,
-                    shortPlayer(event.data().get("playerId"))
-                            + " played " + event.data().getOrDefault("count", "?") + " card(s)",
-                    data
+                    "event.cards_played",
+                    withEntries(data, Map.of(
+                            "player", shortPlayer(event.data().get("playerId")),
+                            "count", event.data().getOrDefault("count", "?")
+                    ))
             );
+            case CARDS_PLAYED_DETAIL -> {
+                UUID cardOwner = asUuid(event.data().get("playerId"));
+                yield UserFacingEvent.personal(
+                        EventSeverity.INFO,
+                        "event.cards_played_detail",
+                        cardOwner,
+                        withEntries(data, Map.of("count", event.data().getOrDefault("count", "?")))
+                );
+            }
             case CHALLENGE_RESOLVED -> UserFacingEvent.broadcast(
                     EventSeverity.INFO,
-                    "Challenge result: " + event.data().getOrDefault("outcome", "UNKNOWN"),
-                    data
+                    "event.challenge_resolved",
+                    withEntries(data, Map.of("outcome", event.data().getOrDefault("outcome", "?")))
             );
-            case SHOT_RESOLVED -> UserFacingEvent.broadcast(
-                    EventSeverity.WARNING,
-                    "Shot resolved: " + shortPlayer(event.data().get("playerId"))
-                            + (Boolean.TRUE.equals(event.data().get("lethal")) ? " eliminated" : " survived"),
-                    data
-            );
+            case SHOT_RESOLVED -> {
+                boolean lethal = Boolean.TRUE.equals(event.data().get("lethal"));
+                yield UserFacingEvent.broadcast(
+                        EventSeverity.WARNING,
+                        lethal ? "event.shot_resolved_eliminated" : "event.shot_resolved_survived",
+                        withEntries(data, Map.of("player", shortPlayer(event.data().get("playerId"))))
+                );
+            }
             case PLAYER_ELIMINATED -> UserFacingEvent.broadcast(
                     EventSeverity.ERROR,
-                    "Player " + shortPlayer(event.data().get("playerId")) + " eliminated",
-                    data
+                    "event.player_eliminated",
+                    withEntries(data, Map.of("player", shortPlayer(event.data().get("playerId"))))
             );
             case GAME_FINISHED -> UserFacingEvent.broadcast(
                     EventSeverity.SUCCESS,
-                    "Game finished. Winner: " + shortPlayer(event.data().get("winner")),
-                    data
+                    "event.game_finished",
+                    withEntries(data, Map.of("winner", shortPlayer(event.data().get("winner"))))
             );
             case HAND_DEALT -> {
                 UUID target = asUuid(event.data().get("playerId"));
                 yield UserFacingEvent.personal(
                         EventSeverity.INFO,
-                        "Your hand has been dealt (round " + event.data().getOrDefault("round", "?") + ")",
+                        "event.hand_dealt",
                         target,
-                        data
+                        withEntries(data, Map.of("round", event.data().getOrDefault("round", "?")))
                 );
             }
         };
@@ -101,9 +118,19 @@ public final class CoreEventTranslator {
         return data;
     }
 
+    private Map<String, Object> withEntries(Map<String, Object> data, Map<String, Object> extra) {
+        HashMap<String, Object> merged = new HashMap<>(data);
+        for (Map.Entry<String, Object> entry : extra.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                merged.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return merged;
+    }
+
     private String shortPlayer(Object value) {
         if (value == null) {
-            return "N/A";
+            return "?";
         }
         if (value instanceof UUID uuid) {
             String text = uuid.toString();
@@ -132,7 +159,7 @@ public final class CoreEventTranslator {
 
     private String modeName(Object value) {
         if (value == null) {
-            return "UNKNOWN";
+            return "?";
         }
         String mode = String.valueOf(value);
         return switch (mode) {

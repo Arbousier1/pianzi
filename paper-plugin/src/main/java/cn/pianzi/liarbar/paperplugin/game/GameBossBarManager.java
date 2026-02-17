@@ -1,6 +1,7 @@
 package cn.pianzi.liarbar.paperplugin.game;
 
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
+import cn.pianzi.liarbar.paperplugin.i18n.I18n;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -10,7 +11,6 @@ import org.bukkit.entity.Player;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -21,6 +21,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class GameBossBarManager {
 
     private static final String EVENT_TYPE_KEY = "_eventType";
+    private static final int MAX_BULLETS = 6;
+
+    private final I18n i18n;
 
     /** playerId → active boss bar */
     private final Map<UUID, BossBar> activeBars = new ConcurrentHashMap<>();
@@ -39,6 +42,10 @@ public final class GameBossBarManager {
 
     /** playerId → hand size */
     private final Map<UUID, Integer> playerHandSize = new ConcurrentHashMap<>();
+
+    public GameBossBarManager(I18n i18n) {
+        this.i18n = i18n;
+    }
 
     public void handleEvents(List<UserFacingEvent> events) {
         for (UserFacingEvent event : events) {
@@ -91,11 +98,11 @@ public final class GameBossBarManager {
         if (playerId == null || tableId == null) return;
 
         playerTables.put(playerId, tableId);
-        playerBullets.put(playerId, 6); // default 6 bullets
+        playerBullets.put(playerId, MAX_BULLETS); // default bullets
         playerHandSize.put(playerId, 0);
 
         BossBar bar = BossBar.bossBar(
-                Component.text("等待开始...", NamedTextColor.YELLOW),
+                Component.text(i18n.t("ui.bossbar.waiting"), NamedTextColor.YELLOW),
                 1.0f,
                 BossBar.Color.YELLOW,
                 BossBar.Overlay.NOTCHED_6
@@ -159,7 +166,7 @@ public final class GameBossBarManager {
         UUID playerId = asUuid(event.data().get("playerId"));
         if (playerId == null) return;
 
-        int remaining = asInt(event.data().get("bulletsRemaining"), -1);
+        int remaining = asInt(event.data().get("bulletsAfter"), -1);
         if (remaining >= 0) {
             playerBullets.put(playerId, remaining);
         } else {
@@ -201,32 +208,32 @@ public final class GameBossBarManager {
 
         String tableId = playerTables.get(playerId);
         String mainRank = tableId != null ? tableMainRank.getOrDefault(tableId, "?") : "?";
-        int bullets = playerBullets.getOrDefault(playerId, 6);
+        int bullets = playerBullets.getOrDefault(playerId, MAX_BULLETS);
         int hand = playerHandSize.getOrDefault(playerId, 0);
         UUID turnPlayer = tableId != null ? tableTurn.get(tableId) : null;
         boolean isMyTurn = playerId.equals(turnPlayer);
 
-        // Build boss bar title: "🎯 主牌: K | 🃏 手牌: 3 | 🔫 子弹: 4/6 | ▶ 你的回合"
+        // Build boss bar title: localized labels, language-agnostic icons.
         Component title = Component.empty()
-                .append(Component.text("🎯 主牌: ", NamedTextColor.GOLD))
+                .append(Component.text("🎯 " + i18n.t("ui.bossbar.main_rank_label"), NamedTextColor.GOLD))
                 .append(Component.text(mainRank, NamedTextColor.WHITE, TextDecoration.BOLD))
                 .append(Component.text(" | ", NamedTextColor.DARK_GRAY))
-                .append(Component.text("🃏 手牌: ", NamedTextColor.AQUA))
+                .append(Component.text("🃏 " + i18n.t("ui.bossbar.hand_label"), NamedTextColor.AQUA))
                 .append(Component.text(hand, NamedTextColor.WHITE))
                 .append(Component.text(" | ", NamedTextColor.DARK_GRAY))
-                .append(Component.text("🔫 子弹: ", NamedTextColor.RED))
-                .append(Component.text(bullets + "/6", NamedTextColor.WHITE));
+                .append(Component.text("🔫 " + i18n.t("ui.bossbar.bullet_label"), NamedTextColor.RED))
+                .append(Component.text(bullets + "/" + MAX_BULLETS, NamedTextColor.WHITE));
 
         if (isMyTurn) {
             title = title
                     .append(Component.text(" | ", NamedTextColor.DARK_GRAY))
-                    .append(Component.text("▶ 你的回合", NamedTextColor.GREEN, TextDecoration.BOLD));
+                    .append(Component.text("▶ " + i18n.t("ui.bossbar.my_turn"), NamedTextColor.GREEN, TextDecoration.BOLD));
         }
 
         bar.name(title);
 
-        // Progress = bullets / 6
-        float progress = Math.max(0f, Math.min(1f, bullets / 6f));
+        // Progress = bullets / max bullets
+        float progress = Math.max(0f, Math.min(1f, bullets / (float) MAX_BULLETS));
         bar.progress(progress);
 
         // Color based on bullets

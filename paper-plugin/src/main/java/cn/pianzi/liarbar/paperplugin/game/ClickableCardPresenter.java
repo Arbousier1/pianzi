@@ -1,6 +1,7 @@
 package cn.pianzi.liarbar.paperplugin.game;
 
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
+import cn.pianzi.liarbar.paperplugin.i18n.I18n;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -20,6 +21,13 @@ import java.util.UUID;
 public final class ClickableCardPresenter {
 
     private static final String EVENT_TYPE_KEY = "_eventType";
+    private static final String SEPARATOR = "═══════════════════════════════";
+
+    private final I18n i18n;
+
+    public ClickableCardPresenter(I18n i18n) {
+        this.i18n = i18n;
+    }
 
     public void handleEvents(List<UserFacingEvent> events) {
         for (UserFacingEvent event : events) {
@@ -47,9 +55,10 @@ public final class ClickableCardPresenter {
 
         // Header
         player.sendMessage(Component.empty());
-        player.sendMessage(Component.text("═══════════════════════════════", NamedTextColor.GOLD));
-        player.sendMessage(Component.text("  🃏 你的手牌", NamedTextColor.GOLD, TextDecoration.BOLD)
-                .append(Component.text("  (主牌: ", NamedTextColor.GRAY))
+        player.sendMessage(Component.text(SEPARATOR, NamedTextColor.GOLD));
+        player.sendMessage(Component.text("  🃏 " + i18n.t("ui.cards.header"), NamedTextColor.GOLD, TextDecoration.BOLD)
+                .append(Component.text("  (" + i18n.t("ui.cards.main_rank_label"), NamedTextColor.GRAY))
+                .append(Component.text(": ", NamedTextColor.GRAY))
                 .append(Component.text(mainRank != null ? mainRank : "?", NamedTextColor.YELLOW, TextDecoration.BOLD))
                 .append(Component.text(")", NamedTextColor.GRAY)));
 
@@ -66,18 +75,21 @@ public final class ClickableCardPresenter {
                 if (rankObj != null) rank = String.valueOf(rankObj);
                 Object demonObj = cardMap.get("demon");
                 if (Boolean.TRUE.equals(demonObj)) demon = true;
-                Object idObj = cardMap.get("id");
                 // slot index is 1-based for the play command
             }
 
             NamedTextColor cardColor = demon ? NamedTextColor.DARK_PURPLE : cardColor(rank);
             String displayText = demon ? "☠" + rank : rank;
+            String demonExtra = demon ? i18n.t("ui.cards.hover.demon_extra") : "";
 
             Component card = Component.text("[" + displayText + "]", cardColor, TextDecoration.BOLD)
                     .hoverEvent(HoverEvent.showText(
-                            Component.text("点击出牌: 槽位 " + slot, NamedTextColor.GREEN)
+                            Component.text(i18n.t("ui.cards.hover.play_slot", Map.of("slot", slot)), NamedTextColor.GREEN)
                                     .append(Component.newline())
-                                    .append(Component.text("牌面: " + rank + (demon ? " (恶魔)" : ""), NamedTextColor.GRAY))
+                                    .append(Component.text(i18n.t("ui.cards.hover.face", Map.of(
+                                            "rank", rank,
+                                            "extra", demonExtra
+                                    )), NamedTextColor.GRAY))
                     ))
                     .clickEvent(ClickEvent.runCommand("/liarbar play " + tableId + " " + slot));
 
@@ -89,12 +101,12 @@ public final class ClickableCardPresenter {
         player.sendMessage(cardRow);
 
         // Multi-select hint
-        player.sendMessage(Component.text("  💡 可同时出多张: ", NamedTextColor.GRAY)
+        player.sendMessage(Component.text("  💡 " + i18n.t("ui.cards.multi_select"), NamedTextColor.GRAY)
                 .append(Component.text("/liarbar play " + tableId + " 1,2,3", NamedTextColor.AQUA)
                         .clickEvent(ClickEvent.suggestCommand("/liarbar play " + tableId + " "))
-                        .hoverEvent(HoverEvent.showText(Component.text("点击填入命令", NamedTextColor.GREEN)))));
+                        .hoverEvent(HoverEvent.showText(Component.text(i18n.t("ui.cards.hover.fill_command"), NamedTextColor.GREEN)))));
 
-        player.sendMessage(Component.text("═══════════════════════════════", NamedTextColor.GOLD));
+        player.sendMessage(Component.text(SEPARATOR, NamedTextColor.GOLD));
     }
 
     private void onTurnChanged(UserFacingEvent event) {
@@ -105,14 +117,14 @@ public final class ClickableCardPresenter {
         Player player = Bukkit.getPlayer(playerId);
         if (player == null) return;
 
-        // Action buttons: [出牌] [质疑]
-        Component actions = Component.text("  ▶ 轮到你了! ", NamedTextColor.GREEN, TextDecoration.BOLD)
-                .append(Component.text("[出牌]", NamedTextColor.AQUA, TextDecoration.BOLD)
-                        .hoverEvent(HoverEvent.showText(Component.text("点击输入出牌命令", NamedTextColor.GREEN)))
+        // Action buttons: [play] [challenge]
+        Component actions = Component.text("  ▶ " + i18n.t("ui.turn.prompt"), NamedTextColor.GREEN, TextDecoration.BOLD)
+                .append(Component.text("[" + i18n.t("ui.turn.play_button") + "]", NamedTextColor.AQUA, TextDecoration.BOLD)
+                        .hoverEvent(HoverEvent.showText(Component.text(i18n.t("ui.turn.play_hover"), NamedTextColor.GREEN)))
                         .clickEvent(ClickEvent.suggestCommand("/liarbar play " + tableId + " ")))
                 .append(Component.text(" ", NamedTextColor.DARK_GRAY))
-                .append(Component.text("[质疑]", NamedTextColor.RED, TextDecoration.BOLD)
-                        .hoverEvent(HoverEvent.showText(Component.text("质疑上家出的牌!", NamedTextColor.RED)))
+                .append(Component.text("[" + i18n.t("ui.turn.challenge_button") + "]", NamedTextColor.RED, TextDecoration.BOLD)
+                        .hoverEvent(HoverEvent.showText(Component.text(i18n.t("ui.turn.challenge_hover"), NamedTextColor.RED)))
                         .clickEvent(ClickEvent.runCommand("/liarbar challenge " + tableId)));
 
         player.sendMessage(actions);
@@ -127,9 +139,9 @@ public final class ClickableCardPresenter {
         if (playerId != null) {
             Player player = Bukkit.getPlayer(playerId);
             if (player != null) {
-                player.sendMessage(Component.text("  ⚠ 强制质疑! ", NamedTextColor.RED, TextDecoration.BOLD)
-                        .append(Component.text("[点击质疑]", NamedTextColor.GOLD, TextDecoration.BOLD)
-                                .hoverEvent(HoverEvent.showText(Component.text("你必须质疑!", NamedTextColor.RED)))
+                player.sendMessage(Component.text("  ⚠ " + i18n.t("ui.force_challenge.prompt"), NamedTextColor.RED, TextDecoration.BOLD)
+                        .append(Component.text("[" + i18n.t("ui.force_challenge.button") + "]", NamedTextColor.GOLD, TextDecoration.BOLD)
+                                .hoverEvent(HoverEvent.showText(Component.text(i18n.t("ui.force_challenge.hover"), NamedTextColor.RED)))
                                 .clickEvent(ClickEvent.runCommand("/liarbar challenge " + tableId))));
             }
         }

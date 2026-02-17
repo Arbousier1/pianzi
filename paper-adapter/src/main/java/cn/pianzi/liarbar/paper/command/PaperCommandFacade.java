@@ -19,23 +19,23 @@ public final class PaperCommandFacade {
     }
 
     public CompletionStage<CommandOutcome> selectMode(String tableId, UUID playerId, TableMode mode) {
-        return run("模式已更新", () -> service.selectMode(tableId, playerId, mode));
+        return run("command.result.mode_updated", () -> service.selectMode(tableId, playerId, mode));
     }
 
     public CompletionStage<CommandOutcome> join(String tableId, UUID playerId) {
-        return run("已加入牌桌", () -> service.join(tableId, playerId));
+        return run("command.result.joined", () -> service.join(tableId, playerId));
     }
 
     public CompletionStage<CommandOutcome> play(String tableId, UUID playerId, List<Integer> slots) {
-        return run("出牌完成", () -> service.play(tableId, playerId, slots));
+        return run("command.result.played", () -> service.play(tableId, playerId, slots));
     }
 
     public CompletionStage<CommandOutcome> challenge(String tableId, UUID playerId) {
-        return run("已发起质疑", () -> service.challenge(tableId, playerId));
+        return run("command.result.challenged", () -> service.challenge(tableId, playerId));
     }
 
     public CompletionStage<CommandOutcome> forceStop(String tableId) {
-        return run("牌桌已结束", () -> service.forceStop(tableId));
+        return run("command.result.stopped", () -> service.forceStop(tableId));
     }
 
     public CompletionStage<GameSnapshot> snapshot(String tableId) {

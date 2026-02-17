@@ -10,7 +10,9 @@ import cn.pianzi.liarbar.core.snapshot.GameSnapshot;
 import cn.pianzi.liarbar.paper.presentation.CoreEventTranslator;
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -95,9 +97,20 @@ public final class TableApplicationService implements AutoCloseable {
     ) {
         return runtimeManager.getTable(tableId)
                 .<CompletionStage<List<UserFacingEvent>>>map(runtime -> executor.execute(runtime)
-                        .thenApply(eventTranslator::translate))
+                        .thenApply(eventTranslator::translate)
+                        .thenApply(events -> injectTableId(events, tableId)))
                 .orElseGet(() -> CompletableFuture.failedStage(
                         new IllegalStateException("table not found: " + tableId)));
+    }
+
+    private List<UserFacingEvent> injectTableId(List<UserFacingEvent> events, String tableId) {
+        return events.stream()
+                .map(e -> {
+                    Map<String, Object> enriched = new HashMap<>(e.data());
+                    enriched.put("tableId", tableId);
+                    return new UserFacingEvent(e.severity(), e.message(), e.targetPlayer(), enriched);
+                })
+                .toList();
     }
 
     @Override

@@ -23,6 +23,7 @@ import cn.pianzi.liarbar.paperplugin.i18n.I18n;
 import cn.pianzi.liarbar.paperplugin.integration.packet.PacketEventsLifecycle;
 import cn.pianzi.liarbar.paperplugin.integration.vault.VaultGatewayFactory;
 import cn.pianzi.liarbar.paperplugin.presentation.PacketEventsActionBarPublisher;
+import cn.pianzi.liarbar.paperplugin.presentation.MiniMessageSupport;
 import cn.pianzi.liarbar.paperplugin.config.DatabaseConfig;
 import cn.pianzi.liarbar.paperplugin.stats.H2StatsRepository;
 import cn.pianzi.liarbar.paperplugin.stats.LiarBarStatsService;
@@ -71,6 +72,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
 
         settings = PluginSettings.fromConfig(getConfig());
         i18n = new I18n(settings.localeTag(), settings.zoneId());
+        MiniMessageSupport.setPrefix(i18n.t("ui.prefix"));
         tableConfig = TableConfigLoader.fromConfig(getConfig());
         packetEventsLifecycle.init();
 
@@ -90,16 +92,16 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         tableService = new TableApplicationService();
         structureBuilder = new TableStructureBuilder();
         seatManager = new TableSeatManager(this, structureBuilder);
-        bossBarManager = new GameBossBarManager();
-        cardPresenter = new ClickableCardPresenter();
-        effectsManager = new GameEffectsManager(this, structureBuilder);
+        bossBarManager = new GameBossBarManager(i18n);
+        cardPresenter = new ClickableCardPresenter(i18n);
+        effectsManager = new GameEffectsManager(structureBuilder, i18n);
         getLogger().info("No table is auto-created. Use /liarbar create as OP at your current location.");
 
         StatsRepository statsRepository = createStatsRepository(settings.databaseConfig());
         statsService = new LiarBarStatsService(this, statsRepository, settings.scoreRule());
 
         commandFacade = new PaperCommandFacade(tableService);
-        PacketEventsPublisher publisher = new PacketEventsActionBarPublisher(this, packetEventsLifecycle.isReady());
+        PacketEventsPublisher publisher = new PacketEventsActionBarPublisher(this, i18n, packetEventsLifecycle.isReady());
         viewBridge = new PacketEventsViewBridge(publisher);
         rewardService = new DatapackParityRewardService(this, i18n);
 
@@ -240,6 +242,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                         if (!result.events().isEmpty()) {
                             statsService.handleEvents(result.events());
                             rewardService.handleEvents(result.events());
+                            seatManager.handleEvents(result.events());
                             bossBarManager.handleEvents(result.events());
                             cardPresenter.handleEvents(result.events());
                             effectsManager.handleEvents(result.events());
@@ -308,4 +311,3 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         };
     }
 }
-

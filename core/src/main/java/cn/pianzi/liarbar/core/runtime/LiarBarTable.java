@@ -233,6 +233,14 @@ public final class LiarBarTable {
                 "cards played",
                 Map.of(
                         "playerId", playerId,
+                        "count", selected.size()
+                )
+        ));
+        events.add(CoreEvent.of(
+                CoreEventType.CARDS_PLAYED_DETAIL,
+                "cards played detail",
+                Map.of(
+                        "playerId", playerId,
                         "count", selected.size(),
                         "ranks", selected.stream().map(c -> c.rank().name()).toList(),
                         "containsDemon", hasDemon

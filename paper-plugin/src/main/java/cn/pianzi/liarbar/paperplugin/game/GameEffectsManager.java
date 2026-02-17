@@ -1,6 +1,7 @@
 package cn.pianzi.liarbar.paperplugin.game;
 
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
+import cn.pianzi.liarbar.paperplugin.i18n.I18n;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -10,7 +11,6 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Firework;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.meta.FireworkMeta;
-import org.bukkit.plugin.java.JavaPlugin;
 
 import java.time.Duration;
 import java.util.List;
@@ -37,15 +37,15 @@ public final class GameEffectsManager {
 
     private static final String EVENT_TYPE_KEY = "_eventType";
 
-    private final JavaPlugin plugin;
     private final TableStructureBuilder structureBuilder;
+    private final I18n i18n;
 
     /** tableId → set of player UUIDs currently at that table */
     private final Map<String, java.util.Set<UUID>> tablePlayers = new ConcurrentHashMap<>();
 
-    public GameEffectsManager(JavaPlugin plugin, TableStructureBuilder structureBuilder) {
-        this.plugin = plugin;
+    public GameEffectsManager(TableStructureBuilder structureBuilder, I18n i18n) {
         this.structureBuilder = structureBuilder;
+        this.i18n = i18n;
     }
 
     public void handleEvents(List<UserFacingEvent> events) {
@@ -92,9 +92,9 @@ public final class GameEffectsManager {
         player.playSound(player.getLocation(),
                 Sound.BLOCK_ANVIL_PLACE, SoundCategory.MASTER, 1f, 1f);
 
-        // Title: >>>你的回合<<<
+        // Title: localized "your turn"
         Title title = Title.title(
-                Component.text(">>>你的回合<<<", NamedTextColor.GREEN, TextDecoration.BOLD),
+                Component.text(i18n.t("ui.title.turn"), NamedTextColor.GREEN, TextDecoration.BOLD),
                 Component.empty(),
                 Title.Times.times(Duration.ofMillis(200), Duration.ofSeconds(2), Duration.ofMillis(500))
         );
@@ -104,19 +104,15 @@ public final class GameEffectsManager {
     // ── Challenge: title to the challenged player ────────────────────
 
     private void onChallengeResolved(UserFacingEvent event) {
-        // The "challenged" player is the one who played the cards (the "last" player)
-        UUID challengedId = asUuid(event.data().get("challengedPlayerId"));
-        if (challengedId == null) {
-            // Fallback: try "targetPlayerId"
-            challengedId = asUuid(event.data().get("targetPlayerId"));
-        }
+        // The "challenged" player is the one who played the cards (the "lastPlayer" field from core)
+        UUID challengedId = asUuid(event.data().get("lastPlayer"));
         if (challengedId == null) return;
 
         Player challenged = Bukkit.getPlayer(challengedId);
         if (challenged == null) return;
 
         Title title = Title.title(
-                Component.text(">>>你被质疑<<<", NamedTextColor.GOLD, TextDecoration.BOLD),
+                Component.text(i18n.t("ui.title.challenged"), NamedTextColor.GOLD, TextDecoration.BOLD),
                 Component.empty(),
                 Title.Times.times(Duration.ofMillis(200), Duration.ofSeconds(2), Duration.ofMillis(500))
         );

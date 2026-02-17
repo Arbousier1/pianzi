@@ -144,8 +144,8 @@ public final class TableSeatManager {
             spawnSeats(tableId);
         }
 
-        // Teleport player to seat position, facing center
-        int seatIndex = seat % SEAT_OFFSETS.length;
+        // Teleport player to seat position, facing center (core seats are 1-based)
+        int seatIndex = (seat - 1) % SEAT_OFFSETS.length;
         int[] offset = SEAT_OFFSETS[seatIndex];
         Location seatLoc = center.clone().add(offset[0], offset[1], offset[2]);
         seatLoc.setYaw(SEAT_YAWS[seatIndex]);

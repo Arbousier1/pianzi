@@ -220,7 +220,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     if (throwable != null) {
                         send(sender, MiniMessageSupport.prefixed(i18n.t("command.status_failed", Map.of(
-                                "reason", MiniMessageSupport.escape(rootMessage(throwable))
+                                "reason", MiniMessageSupport.escape(localizedReason(throwable))
                         ))));
                         return;
                     }
@@ -358,7 +358,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
                     plugin.getServer().getScheduler().runTask(plugin, () -> {
                         if (throwable != null) {
                             send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.reset_failed", Map.of(
-                                    "reason", MiniMessageSupport.escape(rootMessage(throwable))
+                                    "reason", MiniMessageSupport.escape(localizedReason(throwable))
                             ))));
                             return;
                         }
@@ -391,7 +391,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
                     plugin.getServer().getScheduler().runTask(plugin, () -> {
                         if (throwable != null) {
                             send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.list_failed", Map.of(
-                                    "reason", MiniMessageSupport.escape(rootMessage(throwable))
+                                    "reason", MiniMessageSupport.escape(localizedReason(throwable))
                             ))));
                             return;
                         }
@@ -462,7 +462,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
                     plugin.getServer().getScheduler().runTask(plugin, () -> {
                         if (throwable != null) {
                             send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.top_failed", Map.of(
-                                    "reason", MiniMessageSupport.escape(rootMessage(throwable))
+                                    "reason", MiniMessageSupport.escape(localizedReason(throwable))
                             ))));
                             return;
                         }
@@ -489,7 +489,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
             send(sender, i18n.t("command.reload.note"));
         } catch (Exception ex) {
             send(sender, MiniMessageSupport.prefixed(i18n.t("command.reload.failed", Map.of(
-                    "reason", MiniMessageSupport.escape(rootMessage(ex))
+                    "reason", MiniMessageSupport.escape(localizedReason(ex))
             ))));
         }
         return true;
@@ -500,13 +500,14 @@ public final class LiarBarCommandExecutor implements TabExecutor {
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     if (throwable != null) {
                         send(sender, MiniMessageSupport.prefixed(i18n.t("command.failed", Map.of(
-                                "reason", MiniMessageSupport.escape(rootMessage(throwable))
+                                "reason", MiniMessageSupport.escape(localizedReason(throwable))
                         ))));
                         return;
                     }
 
                     String color = outcome.success() ? "green" : "red";
-                    send(sender, MiniMessageSupport.prefixed("<" + color + ">" + MiniMessageSupport.escape(outcome.message()) + "</" + color + ">"));
+                    String message = outcome.success() ? i18n.t(outcome.message()) : outcome.message();
+                    send(sender, MiniMessageSupport.prefixed("<" + color + ">" + MiniMessageSupport.escape(message) + "</" + color + ">"));
                     if (outcome.success()) {
                         statsService.handleEvents(outcome.events());
                         rewardService.handleEvents(outcome.events());
@@ -526,8 +527,8 @@ public final class LiarBarCommandExecutor implements TabExecutor {
                 "joined", snapshot.joinedCount()
         )));
 
-        String current = snapshot.currentPlayer().map(this::displayName).orElse("none");
-        String last = snapshot.lastPlayer().map(this::displayName).orElse("none");
+        String current = snapshot.currentPlayer().map(this::displayName).orElse(i18n.t("command.snapshot.none"));
+        String last = snapshot.lastPlayer().map(this::displayName).orElse(i18n.t("command.snapshot.none"));
         send(sender, i18n.t("command.snapshot.turn", Map.of(
                 "current", MiniMessageSupport.escape(current),
                 "last", MiniMessageSupport.escape(last),
@@ -775,27 +776,45 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
     }
 
+    private String localizedReason(Throwable throwable) {
+        String reason = rootMessage(throwable);
+        String prefix = "table not found: ";
+        if (reason.startsWith(prefix)) {
+            String tableId = reason.substring(prefix.length()).trim();
+            if (!tableId.isEmpty()) {
+                return i18n.t("command.table.not_created", Map.of("table", tableId));
+            }
+        }
+        return reason;
+    }
+
     private void sendSeasonResetSuccess(CommandSender sender, SeasonResetResult result) {
         send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.reset_ok")));
-        send(sender, "<gray>season=<white>" + result.seasonId()
-                + "</white> archived=<white>" + result.archivedRows()
-                + "</white> deleted=<white>" + result.deletedRows() + "</white></gray>");
+        send(sender, i18n.t("command.season.reset.meta", Map.of(
+                "season", result.seasonId(),
+                "archived", result.archivedRows(),
+                "deleted", result.deletedRows()
+        )));
     }
 
     private void sendSeasonList(CommandSender sender, SeasonListResult pageResult) {
         send(sender, i18n.t("command.season.list_header"));
-        send(sender, "<gray>page=<white>" + pageResult.page()
-                + "</white>/<white>" + pageResult.totalPages()
-                + "</white> size=<white>" + pageResult.pageSize()
-                + "</white> totalSeasons=<white>" + pageResult.totalSeasons() + "</white></gray>");
+        send(sender, i18n.t("command.season.list.meta", Map.of(
+                "page", pageResult.page(),
+                "totalPages", pageResult.totalPages(),
+                "size", pageResult.pageSize(),
+                "totalSeasons", pageResult.totalSeasons()
+        )));
         if (pageResult.entries().isEmpty()) {
             send(sender, i18n.t("command.season.list.empty"));
             return;
         }
         for (SeasonHistorySummary season : pageResult.entries()) {
-            send(sender, "<gray>season=<white>" + season.seasonId()
-                    + "</white> archivedAt=<white>" + MiniMessageSupport.escape(formatEpoch(season.archivedAtEpochSecond()))
-                    + "</white> players=<white>" + season.playerCount() + "</white></gray>");
+            send(sender, i18n.t("command.season.list.row", Map.of(
+                    "season", season.seasonId(),
+                    "archivedAt", MiniMessageSupport.escape(formatEpoch(season.archivedAtEpochSecond())),
+                    "players", season.playerCount()
+            )));
         }
     }
 
@@ -803,7 +822,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         send(sender, i18n.t("command.season.top_header", Map.of("season", topResult.seasonId())));
         send(sender, i18n.t("command.season.top.meta", Map.of(
                 "archivedAt", MiniMessageSupport.escape(formatEpoch(topResult.archivedAtEpochSecond())),
-                "sort", topResult.sort(),
+                "sort", sortLabel(topResult.sort()),
                 "page", topResult.page(),
                 "totalPages", topResult.totalPages(),
                 "totalPlayers", topResult.totalPlayers()
@@ -837,6 +856,16 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         } catch (NumberFormatException ex) {
             return null;
         }
+    }
+
+    private String sortLabel(SeasonTopSort sort) {
+        if (sort == null) {
+            return i18n.t("command.season.sort.score");
+        }
+        return switch (sort) {
+            case SCORE -> i18n.t("command.season.sort.score");
+            case WINS -> i18n.t("command.season.sort.wins");
+        };
     }
 
     private SeasonTopSort parseSortOrFail(CommandSender sender, String raw) {

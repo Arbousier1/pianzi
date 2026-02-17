@@ -3,6 +3,7 @@ package cn.pianzi.liarbar.paperplugin.presentation;
 import cn.pianzi.liarbar.paper.presentation.EventSeverity;
 import cn.pianzi.liarbar.paper.presentation.PacketEventsPublisher;
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
+import cn.pianzi.liarbar.paperplugin.i18n.I18n;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerActionBar;
 import net.kyori.adventure.text.Component;
@@ -14,11 +15,13 @@ import java.util.UUID;
 
 public final class PacketEventsActionBarPublisher implements PacketEventsPublisher {
     private final JavaPlugin plugin;
+    private final I18n i18n;
     private boolean packetEventsReady;
     private boolean packetEventsFailureLogged;
 
-    public PacketEventsActionBarPublisher(JavaPlugin plugin, boolean packetEventsReady) {
+    public PacketEventsActionBarPublisher(JavaPlugin plugin, I18n i18n, boolean packetEventsReady) {
         this.plugin = plugin;
+        this.i18n = i18n;
         this.packetEventsReady = packetEventsReady;
     }
 
@@ -39,7 +42,8 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
     }
 
     private void publishToPlayer(Player player, UserFacingEvent event) {
-        String body = "<" + colorTag(event.severity()) + ">" + MiniMessageSupport.escape(event.message()) + "</" + colorTag(event.severity()) + ">";
+        String resolvedMessage = i18n.t(event.message(), event.data());
+        String body = "<" + colorTag(event.severity()) + ">" + MiniMessageSupport.escape(resolvedMessage) + "</" + colorTag(event.severity()) + ">";
         String line = MiniMessageSupport.prefixed(body);
         Component component = MiniMessageSupport.parse(line);
         player.sendMessage(component);
