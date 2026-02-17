@@ -18,14 +18,16 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
-          cache: maven
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Build and test
-        run: mvn -B clean verify
+        run: ./gradlew build
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: liar-bar-paper-plugin
-          path: paper-plugin/target/liar-bar-paper-plugin-*.jar
+          path: paper-plugin/build/libs/paper-plugin-*.jar
           if-no-files-found: error
