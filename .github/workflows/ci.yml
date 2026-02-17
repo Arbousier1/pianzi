@@ -23,3 +23,9 @@ jobs:
       - name: Build and test
         run: mvn -B clean verify
 
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: liar-bar-paper-plugin
+          path: paper-plugin/target/liar-bar-paper-plugin-*.jar
+          if-no-files-found: error
