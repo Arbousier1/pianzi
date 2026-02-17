@@ -1,0 +1,60 @@
+table:
+  id: default
+  tick-interval-ticks: 20
+  mode-selection-seconds: 20
+  join-seconds: 20
+  dealing-seconds: 5
+  first-turn-seconds: 30
+  standard-turn-seconds: 30
+  resolve-challenge-seconds: 5
+  max-players: 4
+  hand-size: 5
+  min-play-cards: 1
+  max-play-cards: 3
+  starting-bullets: 6
+
+database:
+  # h2 (embedded, zero config) or mariadb
+  type: h2
+  # MariaDB settings (only used when type: mariadb)
+  host: localhost
+  port: 3306
+  database: liarbar
+  username: root
+  password: ''
+  max-pool-size: 8
+
+economy:
+  fantuan-entry-fee: 1.0
+  kunkun-entry-fee: 1.0
+
+i18n:
+  locale: zh-CN
+  timezone: system
+
+score:
+  # Community-observed matchmaking-like defaults:
+  # - minimum points to join queue: 50
+  # - per match entry cost: 50
+  # - winner settlement: +100 (net +50 after entry cost)
+  initial: 200
+  min-join-score: 50
+  entry-cost: 50
+  join: 0
+  survive-shot: 0
+  win: 100
+  lose: 0
+  eliminated: 0
+
+ranking:
+  tiers:
+    - min: 0
+      title: 见习骗子
+    - min: 200
+      title: 小有名气
+    - min: 500
+      title: 老千常客
+    - min: 1000
+      title: 骗局大师
+    - min: 1800
+      title: 传说骗子

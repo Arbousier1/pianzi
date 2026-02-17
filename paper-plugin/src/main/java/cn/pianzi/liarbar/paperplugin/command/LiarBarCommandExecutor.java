@@ -1,0 +1,740 @@
+package cn.pianzi.liarbar.paperplugin.command;
+
+import cn.pianzi.liarbar.core.domain.TableMode;
+import cn.pianzi.liarbar.core.snapshot.GameSnapshot;
+import cn.pianzi.liarbar.core.snapshot.PlayerSnapshot;
+import cn.pianzi.liarbar.paper.command.CommandOutcome;
+import cn.pianzi.liarbar.paper.command.PaperCommandFacade;
+import cn.pianzi.liarbar.paper.presentation.PacketEventsViewBridge;
+import cn.pianzi.liarbar.paperplugin.config.PluginSettings;
+import cn.pianzi.liarbar.paperplugin.game.DatapackParityRewardService;
+import cn.pianzi.liarbar.paperplugin.i18n.I18n;
+import cn.pianzi.liarbar.paperplugin.presentation.MiniMessageSupport;
+import cn.pianzi.liarbar.paperplugin.stats.LiarBarStatsService;
+import cn.pianzi.liarbar.paperplugin.stats.PlayerStatsSnapshot;
+import cn.pianzi.liarbar.paperplugin.stats.RankTier;
+import cn.pianzi.liarbar.paperplugin.stats.SeasonHistorySummary;
+import cn.pianzi.liarbar.paperplugin.stats.SeasonListResult;
+import cn.pianzi.liarbar.paperplugin.stats.SeasonResetResult;
+import cn.pianzi.liarbar.paperplugin.stats.SeasonTopSort;
+import cn.pianzi.liarbar.paperplugin.stats.ScoreRule;
+import cn.pianzi.liarbar.paperplugin.stats.SeasonTopResult;
+import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabExecutor;
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.java.JavaPlugin;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.CompletionStage;
+
+public final class LiarBarCommandExecutor implements TabExecutor {
+    private static final List<String> SUBCOMMANDS = List.of("mode", "join", "play", "challenge", "stop", "status", "stats", "top", "season", "reload", "help");
+    private static final List<String> MODES = List.of("life", "fantuan", "kunkun");
+
+    private final JavaPlugin plugin;
+    private final PaperCommandFacade commandFacade;
+    private final PacketEventsViewBridge viewBridge;
+    private final LiarBarStatsService statsService;
+    private final DatapackParityRewardService rewardService;
+    private final I18n i18n;
+    private final String tableId;
+
+    public LiarBarCommandExecutor(
+            JavaPlugin plugin,
+            PaperCommandFacade commandFacade,
+            PacketEventsViewBridge viewBridge,
+            LiarBarStatsService statsService,
+            DatapackParityRewardService rewardService,
+            I18n i18n,
+            String tableId
+    ) {
+        this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.commandFacade = Objects.requireNonNull(commandFacade, "commandFacade");
+        this.viewBridge = Objects.requireNonNull(viewBridge, "viewBridge");
+        this.statsService = Objects.requireNonNull(statsService, "statsService");
+        this.rewardService = Objects.requireNonNull(rewardService, "rewardService");
+        this.i18n = Objects.requireNonNull(i18n, "i18n");
+        this.tableId = Objects.requireNonNull(tableId, "tableId");
+    }
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (args.length == 0 || equalsIgnoreCase(args[0], "help")) {
+            sendHelp(sender, label);
+            return true;
+        }
+
+        String subcommand = args[0].toLowerCase(Locale.ROOT);
+        return switch (subcommand) {
+            case "mode" -> handleMode(sender, args);
+            case "join" -> handleJoin(sender);
+            case "play" -> handlePlay(sender, args);
+            case "challenge" -> handleChallenge(sender);
+            case "stop" -> handleStop(sender);
+            case "status" -> handleStatus(sender);
+            case "stats" -> handleStats(sender, args);
+            case "top" -> handleTop(sender, args);
+            case "season" -> handleSeason(sender, args);
+            case "reload" -> handleReload(sender);
+            default -> {
+                send(sender, MiniMessageSupport.prefixed(i18n.t("command.unknown_subcommand", Map.of("label", label))));
+                yield true;
+            }
+        };
+    }
+
+    private boolean handleMode(CommandSender sender, String[] args) {
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+
+        if (args.length < 2) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.mode")));
+            return true;
+        }
+
+        TableMode mode;
+        try {
+            mode = parseMode(args[1]);
+        } catch (IllegalArgumentException ex) {
+            send(sender, MiniMessageSupport.prefixed("<red>" + MiniMessageSupport.escape(ex.getMessage()) + "</red>"));
+            return true;
+        }
+
+        dispatchOutcome(sender, commandFacade.selectMode(tableId, player.getUniqueId(), mode));
+        return true;
+    }
+
+    private boolean handleJoin(CommandSender sender) {
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+
+        if (!statsService.canJoinRanked(player.getUniqueId())) {
+            PlayerStatsSnapshot stats = statsService.statsOf(player.getUniqueId());
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.not_enough_score", Map.of(
+                    "min", statsService.minJoinScore(),
+                    "current", stats.score()
+            ))));
+            return true;
+        }
+
+        dispatchOutcome(sender, commandFacade.join(tableId, player.getUniqueId()));
+        return true;
+    }
+
+    private boolean handlePlay(CommandSender sender, String[] args) {
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+
+        if (args.length < 2) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.play")));
+            return true;
+        }
+
+        List<Integer> slots;
+        try {
+            slots = parseSlots(args, 1);
+        } catch (IllegalArgumentException ex) {
+            send(sender, MiniMessageSupport.prefixed("<red>" + MiniMessageSupport.escape(ex.getMessage()) + "</red>"));
+            return true;
+        }
+
+        dispatchOutcome(sender, commandFacade.play(tableId, player.getUniqueId(), slots));
+        return true;
+    }
+
+    private boolean handleChallenge(CommandSender sender) {
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+
+        dispatchOutcome(sender, commandFacade.challenge(tableId, player.getUniqueId()));
+        return true;
+    }
+
+    private boolean handleStop(CommandSender sender) {
+        if (!sender.hasPermission("liarbar.admin")) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.no_permission_admin")));
+            return true;
+        }
+
+        dispatchOutcome(sender, commandFacade.forceStop(tableId));
+        return true;
+    }
+
+    private boolean handleStatus(CommandSender sender) {
+        commandFacade.snapshot(tableId).whenComplete((snapshot, throwable) ->
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (throwable != null) {
+                        send(sender, MiniMessageSupport.prefixed(i18n.t("command.status_failed", Map.of(
+                                "reason", MiniMessageSupport.escape(rootMessage(throwable))
+                        ))));
+                        return;
+                    }
+                    sendSnapshot(sender, snapshot);
+                })
+        );
+        return true;
+    }
+
+    private boolean handleStats(CommandSender sender, String[] args) {
+        UUID target;
+        if (args.length >= 2) {
+            target = resolvePlayerId(args[1]);
+            if (target == null) {
+                send(sender, MiniMessageSupport.prefixed(i18n.t("command.player_not_found", Map.of(
+                        "player", MiniMessageSupport.escape(args[1])
+                ))));
+                return true;
+            }
+        } else if (sender instanceof Player player) {
+            target = player.getUniqueId();
+        } else {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.stats_console")));
+            return true;
+        }
+
+        PlayerStatsSnapshot snapshot = statsService.statsOf(target);
+        sendStats(sender, snapshot);
+        return true;
+    }
+
+    private boolean handleTop(CommandSender sender, String[] args) {
+        int limit = 10;
+        if (args.length >= 2) {
+            try {
+                limit = Math.max(1, Math.min(50, Integer.parseInt(args[1])));
+            } catch (NumberFormatException ex) {
+                send(sender, MiniMessageSupport.prefixed(i18n.t("command.top.invalid_limit")));
+                return true;
+            }
+        }
+
+        List<PlayerStatsSnapshot> top = statsService.top(limit);
+        send(sender, i18n.t("command.top.header"));
+        if (top.isEmpty()) {
+            send(sender, i18n.t("command.top.empty"));
+            return true;
+        }
+
+        int index = 1;
+        for (PlayerStatsSnapshot snapshot : top) {
+            String line = i18n.t("command.top.row", Map.of(
+                    "rank", index,
+                    "player", MiniMessageSupport.escape(displayName(snapshot.playerId())),
+                    "score", snapshot.score(),
+                    "tier", MiniMessageSupport.escape(statsService.rankTitleOf(snapshot.score())),
+                    "wins", snapshot.wins(),
+                    "games", snapshot.gamesPlayed()
+            ));
+            send(sender, line);
+            index++;
+        }
+        return true;
+    }
+
+    private boolean handleSeason(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("liarbar.admin")) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.no_permission_admin")));
+            return true;
+        }
+
+        if (args.length < 2 || equalsIgnoreCase(args[1], "info")) {
+            sendSeasonInfo(sender);
+            return true;
+        }
+
+        if (equalsIgnoreCase(args[1], "reset")) {
+            if (args.length < 3 || !equalsIgnoreCase(args[2], "confirm")) {
+                send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.reset_confirm_hint")));
+                return true;
+            }
+            statsService.resetSeason().whenComplete((result, throwable) ->
+                    plugin.getServer().getScheduler().runTask(plugin, () -> {
+                        if (throwable != null) {
+                            send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.reset_failed", Map.of(
+                                    "reason", MiniMessageSupport.escape(rootMessage(throwable))
+                            ))));
+                            return;
+                        }
+                        sendSeasonResetSuccess(sender, result);
+                    })
+            );
+            return true;
+        }
+
+        if (equalsIgnoreCase(args[1], "list")) {
+            int page = 1;
+            int pageSize = 10;
+            if (args.length >= 3) {
+                try {
+                    page = Math.max(1, Integer.parseInt(args[2]));
+                } catch (NumberFormatException ex) {
+                    send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.list.invalid_page")));
+                    return true;
+                }
+            }
+            if (args.length >= 4) {
+                try {
+                    pageSize = Math.max(1, Math.min(50, Integer.parseInt(args[3])));
+                } catch (NumberFormatException ex) {
+                    send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.list.invalid_size")));
+                    return true;
+                }
+            }
+            statsService.listSeasons(page, pageSize).whenComplete((pageResult, throwable) ->
+                    plugin.getServer().getScheduler().runTask(plugin, () -> {
+                        if (throwable != null) {
+                            send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.list_failed", Map.of(
+                                    "reason", MiniMessageSupport.escape(rootMessage(throwable))
+                            ))));
+                            return;
+                        }
+                        sendSeasonList(sender, pageResult);
+                    })
+            );
+            return true;
+        }
+
+        if (equalsIgnoreCase(args[1], "top")) {
+            if (args.length < 3) {
+                send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.season_top")));
+                return true;
+            }
+            int seasonId;
+            int page = 1;
+            int pageSize = 10;
+            SeasonTopSort sort = SeasonTopSort.SCORE;
+            try {
+                seasonId = Integer.parseInt(args[2]);
+            } catch (NumberFormatException ex) {
+                send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.top.invalid_season")));
+                return true;
+            }
+
+            if (args.length == 4) {
+                Integer maybeNumber = tryParseInt(args[3]);
+                if (maybeNumber != null) {
+                    if (maybeNumber <= 50) {
+                        pageSize = Math.max(1, maybeNumber);
+                    } else {
+                        page = Math.max(1, maybeNumber);
+                    }
+                } else {
+                    sort = parseSortOrFail(sender, args[3]);
+                    if (sort == null) {
+                        return true;
+                    }
+                }
+            }
+            if (args.length >= 5) {
+                Integer maybePage = tryParseInt(args[3]);
+                if (maybePage == null) {
+                    send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.top.invalid_page")));
+                    return true;
+                }
+                page = Math.max(1, maybePage);
+
+                Integer maybeSize = tryParseInt(args[4]);
+                if (maybeSize == null) {
+                    SeasonTopSort parsed = parseSortOrFail(sender, args[4]);
+                    if (parsed == null) {
+                        return true;
+                    }
+                    sort = parsed;
+                } else {
+                    pageSize = Math.max(1, Math.min(50, maybeSize));
+                }
+            }
+            if (args.length >= 6) {
+                SeasonTopSort parsed = parseSortOrFail(sender, args[5]);
+                if (parsed == null) {
+                    return true;
+                }
+                sort = parsed;
+            }
+            statsService.topForSeason(seasonId, page, pageSize, sort).whenComplete((topResult, throwable) ->
+                    plugin.getServer().getScheduler().runTask(plugin, () -> {
+                        if (throwable != null) {
+                            send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.top_failed", Map.of(
+                                    "reason", MiniMessageSupport.escape(rootMessage(throwable))
+                            ))));
+                            return;
+                        }
+                        sendSeasonTop(sender, topResult);
+                    })
+            );
+            return true;
+        }
+
+        send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.season")));
+        return true;
+    }
+
+    private boolean handleReload(CommandSender sender) {
+        if (!sender.hasPermission("liarbar.admin")) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.no_permission_admin")));
+            return true;
+        }
+        try {
+            plugin.reloadConfig();
+            PluginSettings updated = PluginSettings.fromConfig(plugin.getConfig());
+            statsService.updateScoreRule(updated.scoreRule());
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.reload.ok")));
+            send(sender, i18n.t("command.reload.note"));
+        } catch (Exception ex) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.reload.failed", Map.of(
+                    "reason", MiniMessageSupport.escape(rootMessage(ex))
+            ))));
+        }
+        return true;
+    }
+
+    private void dispatchOutcome(CommandSender sender, CompletionStage<CommandOutcome> future) {
+        future.whenComplete((outcome, throwable) ->
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (throwable != null) {
+                        send(sender, MiniMessageSupport.prefixed(i18n.t("command.failed", Map.of(
+                                "reason", MiniMessageSupport.escape(rootMessage(throwable))
+                        ))));
+                        return;
+                    }
+
+                    String color = outcome.success() ? "green" : "red";
+                    send(sender, MiniMessageSupport.prefixed("<" + color + ">" + MiniMessageSupport.escape(outcome.message()) + "</" + color + ">"));
+                    if (outcome.success()) {
+                        statsService.handleEvents(outcome.events());
+                        rewardService.handleEvents(outcome.events());
+                        viewBridge.publishAll(outcome.events());
+                    }
+                })
+        );
+    }
+
+    private void sendSnapshot(CommandSender sender, GameSnapshot snapshot) {
+        send(sender, i18n.t("command.snapshot.header"));
+        send(sender, i18n.t("command.snapshot.overview", Map.of(
+                "table", MiniMessageSupport.escape(snapshot.tableId()),
+                "phase", snapshot.phase(),
+                "round", snapshot.round(),
+                "mode", snapshot.mode(),
+                "joined", snapshot.joinedCount()
+        )));
+
+        String current = snapshot.currentPlayer().map(this::displayName).orElse("none");
+        String last = snapshot.lastPlayer().map(this::displayName).orElse("none");
+        send(sender, i18n.t("command.snapshot.turn", Map.of(
+                "current", MiniMessageSupport.escape(current),
+                "last", MiniMessageSupport.escape(last),
+                "force", snapshot.forceChallenge()
+        )));
+
+        List<PlayerSnapshot> sorted = snapshot.players().stream()
+                .sorted(Comparator.comparingInt(PlayerSnapshot::seat))
+                .toList();
+        for (PlayerSnapshot player : sorted) {
+            send(sender, i18n.t("command.snapshot.player_row", Map.of(
+                    "seat", player.seat(),
+                    "player", MiniMessageSupport.escape(displayName(player.playerId())),
+                    "alive", player.alive(),
+                    "bullets", player.bullets(),
+                    "hand", player.handSize()
+            )));
+        }
+    }
+
+    private void sendStats(CommandSender sender, PlayerStatsSnapshot snapshot) {
+        send(sender, i18n.t("command.stats.header"));
+        send(sender, i18n.t("command.stats.player", Map.of("player", MiniMessageSupport.escape(displayName(snapshot.playerId())))));
+        send(sender, i18n.t("command.stats.tier", Map.of("tier", MiniMessageSupport.escape(statsService.rankTitleOf(snapshot.score())))));
+        send(sender, i18n.t("command.stats.score", Map.of("score", snapshot.score())));
+        send(sender, i18n.t("command.stats.wl", Map.of(
+                "games", snapshot.gamesPlayed(),
+                "wins", snapshot.wins(),
+                "losses", snapshot.losses()
+        )));
+        send(sender, i18n.t("command.stats.misc", Map.of(
+                "eliminated", snapshot.eliminatedCount(),
+                "survived", snapshot.survivedShots()
+        )));
+        send(sender, i18n.t("command.stats.streak", Map.of(
+                "current", snapshot.currentWinStreak(),
+                "best", snapshot.bestWinStreak()
+        )));
+    }
+
+    private void sendHelp(CommandSender sender, String label) {
+        send(sender, i18n.t("command.help.header"));
+        send(sender, "<gray>/" + label + " mode [life|fantuan|kunkun]</gray>");
+        send(sender, "<gray>/" + label + " join</gray>");
+        send(sender, "<gray>/" + label + " play [slot...]</gray>");
+        send(sender, "<gray>/" + label + " challenge</gray>");
+        send(sender, "<gray>/" + label + " status</gray>");
+        send(sender, "<gray>/" + label + " stats [player]</gray>");
+        send(sender, "<gray>/" + label + " top [limit]</gray>");
+        send(sender, "<gray>/" + label + " stop</gray>");
+        send(sender, "<gray>/" + label + " season [info|list [page] [size]|top <seasonId> [page] [size] [sort]|reset confirm]</gray>");
+        send(sender, "<gray>/" + label + " reload</gray>");
+    }
+
+    private void sendSeasonInfo(CommandSender sender) {
+        ScoreRule rule = statsService.scoreRule();
+        send(sender, i18n.t("command.season.info.header"));
+        send(sender, i18n.t("command.season.info.base", Map.of(
+                "initial", rule.initialScore(),
+                "min", rule.minJoinScore(),
+                "entry", rule.entryCost()
+        )));
+        send(sender, i18n.t("command.season.info.score", Map.of(
+                "win", signed(rule.win()),
+                "lose", signed(rule.lose()),
+                "join", signed(rule.join()),
+                "survive", signed(rule.surviveShot()),
+                "eliminated", signed(rule.eliminated())
+        )));
+        int index = 1;
+        for (RankTier tier : rule.rankTiers()) {
+            send(sender, i18n.t("command.season.info.tier_row", Map.of(
+                    "index", index,
+                    "title", MiniMessageSupport.escape(tier.title()),
+                    "min", tier.minPoints()
+            )));
+            index++;
+        }
+    }
+
+    private Player requirePlayer(CommandSender sender) {
+        if (sender instanceof Player player) {
+            if (sender.hasPermission("liarbar.use")) {
+                return player;
+            }
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.no_permission_use")));
+            return null;
+        }
+        send(sender, MiniMessageSupport.prefixed(i18n.t("command.player_only")));
+        return null;
+    }
+
+    private TableMode parseMode(String rawMode) {
+        return switch (rawMode.toLowerCase(Locale.ROOT)) {
+            case "life" -> TableMode.LIFE_ONLY;
+            case "fantuan" -> TableMode.FANTUAN_COIN;
+            case "kunkun" -> TableMode.KUNKUN_COIN;
+            default -> throw new IllegalArgumentException(i18n.t("command.mode.invalid", Map.of("mode", rawMode)));
+        };
+    }
+
+    private List<Integer> parseSlots(String[] args, int startInclusive) {
+        List<Integer> slots = new ArrayList<>();
+        for (int i = startInclusive; i < args.length; i++) {
+            String[] tokens = args[i].split(",");
+            for (String token : tokens) {
+                String value = token.trim();
+                if (value.isEmpty()) {
+                    continue;
+                }
+                try {
+                    slots.add(Integer.parseInt(value));
+                } catch (NumberFormatException ex) {
+                    throw new IllegalArgumentException(i18n.t("command.play.invalid_slot", Map.of("slot", value)));
+                }
+            }
+        }
+
+        if (slots.isEmpty()) {
+            throw new IllegalArgumentException(i18n.t("command.play.no_slot"));
+        }
+        return List.copyOf(slots);
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (args.length == 1) {
+            return filterByPrefix(SUBCOMMANDS, args[0]);
+        }
+        if (args.length == 2 && equalsIgnoreCase(args[0], "mode")) {
+            return filterByPrefix(MODES, args[1]);
+        }
+        if (args.length >= 2 && equalsIgnoreCase(args[0], "play")) {
+            return filterByPrefix(List.of("1", "2", "3", "4", "5"), args[args.length - 1]);
+        }
+        if (args.length == 2 && equalsIgnoreCase(args[0], "stats")) {
+            List<String> names = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
+            return filterByPrefix(names, args[1]);
+        }
+        if (args.length == 2 && equalsIgnoreCase(args[0], "top")) {
+            return filterByPrefix(List.of("5", "10", "20", "50"), args[1]);
+        }
+        if (args.length == 2 && equalsIgnoreCase(args[0], "season")) {
+            return filterByPrefix(List.of("info", "list", "top", "reset"), args[1]);
+        }
+        if (args.length == 3 && equalsIgnoreCase(args[0], "season") && equalsIgnoreCase(args[1], "reset")) {
+            return filterByPrefix(List.of("confirm"), args[2]);
+        }
+        if (args.length == 3 && equalsIgnoreCase(args[0], "season") && equalsIgnoreCase(args[1], "list")) {
+            return filterByPrefix(List.of("1", "2", "3", "4", "5"), args[2]);
+        }
+        if (args.length == 4 && equalsIgnoreCase(args[0], "season") && equalsIgnoreCase(args[1], "list")) {
+            return filterByPrefix(List.of("5", "10", "20", "50"), args[3]);
+        }
+        if (args.length == 3 && equalsIgnoreCase(args[0], "season") && equalsIgnoreCase(args[1], "top")) {
+            List<String> ids = statsService.recentSeasonIds(20).stream()
+                    .map(String::valueOf)
+                    .toList();
+            if (ids.isEmpty()) {
+                ids = List.of("1");
+            }
+            return filterByPrefix(ids, args[2]);
+        }
+        if (args.length == 4 && equalsIgnoreCase(args[0], "season") && equalsIgnoreCase(args[1], "top")) {
+            return filterByPrefix(List.of("5", "10", "20", "50", "wins", "score"), args[3]);
+        }
+        if (args.length == 5 && equalsIgnoreCase(args[0], "season") && equalsIgnoreCase(args[1], "top")) {
+            return filterByPrefix(List.of("5", "10", "20", "50", "wins", "score"), args[4]);
+        }
+        if (args.length == 6 && equalsIgnoreCase(args[0], "season") && equalsIgnoreCase(args[1], "top")) {
+            return filterByPrefix(List.of("wins", "score"), args[5]);
+        }
+        return List.of();
+    }
+
+    private List<String> filterByPrefix(List<String> values, String prefix) {
+        if (prefix == null || prefix.isBlank()) {
+            return values;
+        }
+        String lowered = prefix.toLowerCase(Locale.ROOT);
+        return values.stream()
+                .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(lowered))
+                .toList();
+    }
+
+    private UUID resolvePlayerId(String raw) {
+        Player online = Bukkit.getPlayerExact(raw);
+        if (online != null) {
+            return online.getUniqueId();
+        }
+        try {
+            return UUID.fromString(raw);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private String displayName(UUID playerId) {
+        Player online = Bukkit.getPlayer(playerId);
+        if (online != null) {
+            return online.getName();
+        }
+        OfflinePlayer offline = Bukkit.getOfflinePlayer(playerId);
+        if (offline.getName() != null && !offline.getName().isBlank()) {
+            return offline.getName();
+        }
+        String text = playerId.toString();
+        return text.substring(0, 8);
+    }
+
+    private void send(CommandSender sender, String miniMessage) {
+        sender.sendMessage(MiniMessageSupport.parse(miniMessage));
+    }
+
+    private boolean equalsIgnoreCase(String a, String b) {
+        return a != null && b != null && a.equalsIgnoreCase(b);
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
+    }
+
+    private void sendSeasonResetSuccess(CommandSender sender, SeasonResetResult result) {
+        send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.reset_ok")));
+        send(sender, "<gray>season=<white>" + result.seasonId()
+                + "</white> archived=<white>" + result.archivedRows()
+                + "</white> deleted=<white>" + result.deletedRows() + "</white></gray>");
+    }
+
+    private void sendSeasonList(CommandSender sender, SeasonListResult pageResult) {
+        send(sender, i18n.t("command.season.list_header"));
+        send(sender, "<gray>page=<white>" + pageResult.page()
+                + "</white>/<white>" + pageResult.totalPages()
+                + "</white> size=<white>" + pageResult.pageSize()
+                + "</white> totalSeasons=<white>" + pageResult.totalSeasons() + "</white></gray>");
+        if (pageResult.entries().isEmpty()) {
+            send(sender, i18n.t("command.season.list.empty"));
+            return;
+        }
+        for (SeasonHistorySummary season : pageResult.entries()) {
+            send(sender, "<gray>season=<white>" + season.seasonId()
+                    + "</white> archivedAt=<white>" + MiniMessageSupport.escape(formatEpoch(season.archivedAtEpochSecond()))
+                    + "</white> players=<white>" + season.playerCount() + "</white></gray>");
+        }
+    }
+
+    private void sendSeasonTop(CommandSender sender, SeasonTopResult topResult) {
+        send(sender, i18n.t("command.season.top_header", Map.of("season", topResult.seasonId())));
+        send(sender, i18n.t("command.season.top.meta", Map.of(
+                "archivedAt", MiniMessageSupport.escape(formatEpoch(topResult.archivedAtEpochSecond())),
+                "sort", topResult.sort(),
+                "page", topResult.page(),
+                "totalPages", topResult.totalPages(),
+                "totalPlayers", topResult.totalPlayers()
+        )));
+        int rank = 1;
+        for (PlayerStatsSnapshot snapshot : topResult.entries()) {
+            String line = i18n.t("command.season.top.row", Map.of(
+                    "rank", rank,
+                    "player", MiniMessageSupport.escape(displayName(snapshot.playerId())),
+                    "score", snapshot.score(),
+                    "tier", MiniMessageSupport.escape(statsService.rankTitleOf(snapshot.score())),
+                    "wins", snapshot.wins(),
+                    "games", snapshot.gamesPlayed()
+            ));
+            send(sender, line);
+            rank++;
+        }
+    }
+
+    private String signed(int value) {
+        return value >= 0 ? "+" + value : String.valueOf(value);
+    }
+
+    private String formatEpoch(long epochSecond) {
+        return i18n.formatEpochSecond(epochSecond);
+    }
+
+    private Integer tryParseInt(String raw) {
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private SeasonTopSort parseSortOrFail(CommandSender sender, String raw) {
+        SeasonTopSort sort = SeasonTopSort.parseOrDefault(raw, null);
+        if (sort != null) {
+            return sort;
+        }
+        send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.top.invalid_sort")));
+        return null;
+    }
+}

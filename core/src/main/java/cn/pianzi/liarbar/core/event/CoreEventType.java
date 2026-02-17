@@ -1,0 +1,18 @@
+package cn.pianzi.liarbar.core.event;
+
+public enum CoreEventType {
+    MODE_SELECTED,
+    PLAYER_JOINED,
+    PLAYER_FORFEITED,
+    PHASE_CHANGED,
+    DEAL_COMPLETED,
+    TURN_CHANGED,
+    FORCE_CHALLENGE,
+    CARDS_PLAYED,
+    CHALLENGE_RESOLVED,
+    SHOT_RESOLVED,
+    PLAYER_ELIMINATED,
+    GAME_FINISHED
+}
+
+

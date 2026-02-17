@@ -1,0 +1,42 @@
+# Maven / Java build output
+target/
+**/target/
+*.class
+
+# Logs and JVM crash files
+*.log
+hs_err_pid*
+replay_pid*
+
+# IDE / editor files
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Local runtime data (if you run a Paper test server in-repo)
+plugins/
+world/
+world_nether/
+world_the_end/
+logs/
+cache/
+
+# H2 local database artifacts
+*.mv.db
+*.trace.db
+*.h2.db
