@@ -8,6 +8,8 @@ import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.Bisected;
 import org.bukkit.block.data.type.Stairs;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -104,6 +106,26 @@ public final class TableStructureBuilder {
         for (String tableId : tableLocations.keySet()) {
             demolish(tableId);
         }
+    }
+
+    /**
+     * Snapshot all tracked tables as SavedTable records for persistence.
+     */
+    public List<SavedTable> toSavedTables() {
+        List<SavedTable> result = new ArrayList<>(tableLocations.size());
+        for (Map.Entry<String, Location> entry : tableLocations.entrySet()) {
+            Location loc = entry.getValue();
+            if (loc.getWorld() != null) {
+                result.add(new SavedTable(
+                        entry.getKey(),
+                        loc.getWorld().getName(),
+                        loc.getBlockX(),
+                        loc.getBlockY(),
+                        loc.getBlockZ()
+                ));
+            }
+        }
+        return result;
     }
 
     /**

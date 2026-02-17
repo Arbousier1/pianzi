@@ -25,12 +25,15 @@ import cn.pianzi.liarbar.paperplugin.integration.vault.VaultGatewayFactory;
 import cn.pianzi.liarbar.paperplugin.presentation.PacketEventsActionBarPublisher;
 import cn.pianzi.liarbar.paperplugin.presentation.MiniMessageSupport;
 import cn.pianzi.liarbar.paperplugin.config.DatabaseConfig;
+import cn.pianzi.liarbar.paperplugin.game.SavedTable;
 import cn.pianzi.liarbar.paperplugin.stats.H2StatsRepository;
 import cn.pianzi.liarbar.paperplugin.stats.LiarBarStatsService;
 import cn.pianzi.liarbar.paperplugin.stats.MariaDbStatsRepository;
 import cn.pianzi.liarbar.paperplugin.stats.StatsRepository;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
+import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -57,6 +60,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
     private GameBossBarManager bossBarManager;
     private ClickableCardPresenter cardPresenter;
     private GameEffectsManager effectsManager;
+    private StatsRepository statsRepository;
     private BukkitTask tickTask;
 
     @Override
@@ -97,7 +101,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         effectsManager = new GameEffectsManager(structureBuilder, i18n);
         getLogger().info("No table is auto-created. Use /liarbar create as OP at your current location.");
 
-        StatsRepository statsRepository = createStatsRepository(settings.databaseConfig());
+        statsRepository = createStatsRepository(settings.databaseConfig());
         statsService = new LiarBarStatsService(this, statsRepository, settings.scoreRule());
 
         commandFacade = new PaperCommandFacade(tableService);
@@ -122,6 +126,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                 this
         );
 
+        restoreSavedTables();
         startTickLoop();
     }
 
@@ -130,6 +135,17 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         if (tickTask != null) {
             tickTask.cancel();
             tickTask = null;
+        }
+
+        // Persist table locations before tearing down structures
+        if (structureBuilder != null && statsRepository != null) {
+            try {
+                List<SavedTable> tables = structureBuilder.toSavedTables();
+                statsRepository.saveTables(tables);
+                getLogger().info("Saved " + tables.size() + " table(s) to database.");
+            } catch (Exception ex) {
+                getLogger().log(java.util.logging.Level.WARNING, "Failed to save table locations", ex);
+            }
         }
 
         if (effectsManager != null) {
@@ -161,6 +177,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
             statsService.close();
             statsService = null;
         }
+        statsRepository = null;
         rewardService = null;
 
         if (packetEventsLifecycle != null) {
@@ -292,6 +309,35 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         int y = player.getLocation().getBlockY();
         int z = player.getLocation().getBlockZ();
         return "table_" + world + "_" + x + "_" + y + "_" + z;
+    }
+
+    private void restoreSavedTables() {
+        try {
+            List<SavedTable> saved = statsRepository.loadTables();
+            if (saved.isEmpty()) {
+                return;
+            }
+            int restored = 0;
+            for (SavedTable st : saved) {
+                World world = getServer().getWorld(st.worldName());
+                if (world == null) {
+                    getLogger().warning("Skipping table '" + st.tableId()
+                            + "': world '" + st.worldName() + "' not loaded.");
+                    continue;
+                }
+                Location loc = new Location(world, st.x(), st.y(), st.z());
+                boolean created = tableService.createTableIfAbsent(
+                        st.tableId(), tableConfig, economyPort, randomSource);
+                if (created) {
+                    structureBuilder.build(st.tableId(), loc);
+                    seatManager.spawnSeats(st.tableId());
+                    restored++;
+                }
+            }
+            getLogger().info("Restored " + restored + " table(s) from database.");
+        } catch (Exception ex) {
+            getLogger().log(java.util.logging.Level.WARNING, "Failed to restore saved tables", ex);
+        }
     }
 
     private StatsRepository createStatsRepository(DatabaseConfig dbConfig) {

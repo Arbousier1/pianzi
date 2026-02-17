@@ -1,9 +1,12 @@
 package cn.pianzi.liarbar.paperplugin.stats;
 
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -27,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class LiarBarStatsService implements AutoCloseable {
     private static final String EVENT_TYPE_KEY = "_eventType";
     private static final long SAVE_DEBOUNCE_MILLIS = 500L;
+    private static final int HARD_SCORE_FLOOR = 50;
 
     private final JavaPlugin plugin;
     private final StatsRepository repository;
@@ -44,6 +48,22 @@ public final class LiarBarStatsService implements AutoCloseable {
     private final AtomicBoolean saveScheduled = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile List<Integer> recentSeasonIds = List.of();
+
+    // Caffeine caches
+    private final Cache<Integer, List<PlayerStatsSnapshot>> topCache = Caffeine.newBuilder()
+            .maximumSize(16)
+            .expireAfterWrite(Duration.ofSeconds(3))
+            .build();
+
+    private final Cache<String, SeasonTopResult> seasonTopCache = Caffeine.newBuilder()
+            .maximumSize(128)
+            .expireAfterWrite(Duration.ofMinutes(5))
+            .build();
+
+    private final Cache<String, SeasonListResult> seasonListCache = Caffeine.newBuilder()
+            .maximumSize(32)
+            .expireAfterWrite(Duration.ofMinutes(1))
+            .build();
 
     public LiarBarStatsService(
             JavaPlugin plugin,
@@ -75,18 +95,26 @@ public final class LiarBarStatsService implements AutoCloseable {
             }
         }
         if (changed) {
+            topCache.invalidateAll();
             requestSave();
         }
     }
 
     public PlayerStatsSnapshot statsOf(UUID playerId) {
         synchronized (lock) {
-            return statsByPlayer.getOrDefault(playerId, PlayerStats.create(playerId, scoreRule.initialScore())).snapshot();
+            ScoreRule rule = scoreRule;
+            int initial = Math.max(rule.initialScore(), scoreFloor());
+            PlayerStats stats = statsByPlayer.getOrDefault(playerId, PlayerStats.create(playerId, initial));
+            return stats.snapshot();
         }
     }
 
     public List<PlayerStatsSnapshot> top(int limit) {
         int safeLimit = Math.max(1, limit);
+        return topCache.get(safeLimit, this::computeTop);
+    }
+
+    private List<PlayerStatsSnapshot> computeTop(int safeLimit) {
         synchronized (lock) {
             return statsByPlayer.values().stream()
                     .map(PlayerStats::snapshot)
@@ -103,7 +131,7 @@ public final class LiarBarStatsService implements AutoCloseable {
         ScoreRule rule = scoreRule;
         synchronized (lock) {
             PlayerStats stats = statsByPlayer.get(playerId);
-            int score = stats == null ? rule.initialScore() : stats.score();
+            int score = stats == null ? Math.max(rule.initialScore(), scoreFloor()) : Math.max(stats.score(), scoreFloor());
             return score >= rule.minJoinScore();
         }
     }
@@ -122,8 +150,17 @@ public final class LiarBarStatsService implements AutoCloseable {
 
     public void updateScoreRule(ScoreRule newRule) {
         ScoreRule checked = Objects.requireNonNull(newRule, "newRule");
+        boolean changed = false;
         synchronized (lock) {
             this.scoreRule = checked;
+            for (PlayerStats stats : statsByPlayer.values()) {
+                if (enforceScoreFloor(stats)) {
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            requestSave();
         }
     }
 
@@ -192,6 +229,7 @@ public final class LiarBarStatsService implements AutoCloseable {
             ioExecutor.shutdownNow();
         }
 
+        invalidateAllCaches();
         repository.close();
     }
 
@@ -203,8 +241,10 @@ public final class LiarBarStatsService implements AutoCloseable {
 
         return switch (type) {
             case "PLAYER_JOINED" -> onPlayerJoined(event);
+            case "PLAYER_FORFEITED" -> onPlayerForfeited(event);
             case "SHOT_RESOLVED" -> onShotResolved(event);
             case "PLAYER_ELIMINATED" -> onPlayerEliminated(event);
+            case "PHASE_CHANGED" -> onPhaseChanged(event);
             case "GAME_FINISHED" -> onGameFinished(event);
             default -> false;
         };
@@ -219,8 +259,22 @@ public final class LiarBarStatsService implements AutoCloseable {
         if (!participants.add(playerId)) {
             return false;
         }
-        mutableStatsOf(playerId, rule).onJoin(rule.join());
+        PlayerStats stats = mutableStatsOf(playerId, rule);
+        stats.onJoin(rule.join());
+        enforceScoreFloor(stats);
         return true;
+    }
+
+    private boolean onPlayerForfeited(UserFacingEvent event) {
+        UUID playerId = asUuid(event.data().get("playerId"));
+        if (playerId == null) {
+            return false;
+        }
+        Boolean beforeStart = asBoolean(event.data().get("beforeStart"));
+        if (Boolean.TRUE.equals(beforeStart)) {
+            return participants.remove(playerId);
+        }
+        return false;
     }
 
     private boolean onShotResolved(UserFacingEvent event) {
@@ -233,7 +287,9 @@ public final class LiarBarStatsService implements AutoCloseable {
         if (Boolean.TRUE.equals(lethal)) {
             return false;
         }
-        mutableStatsOf(playerId, rule).onSurviveShot(rule.surviveShot());
+        PlayerStats stats = mutableStatsOf(playerId, rule);
+        stats.onSurviveShot(rule.surviveShot());
+        enforceScoreFloor(stats);
         return true;
     }
 
@@ -246,7 +302,9 @@ public final class LiarBarStatsService implements AutoCloseable {
         if (!eliminatedPlayers.add(playerId)) {
             return false;
         }
-        mutableStatsOf(playerId, rule).onEliminated(rule.eliminated());
+        PlayerStats stats = mutableStatsOf(playerId, rule);
+        stats.onEliminated(rule.eliminated());
+        enforceScoreFloor(stats);
         return true;
     }
 
@@ -273,6 +331,7 @@ public final class LiarBarStatsService implements AutoCloseable {
             } else {
                 stats.onLose(rule.lose());
             }
+            enforceScoreFloor(stats);
         }
 
         participants.clear();
@@ -280,8 +339,26 @@ public final class LiarBarStatsService implements AutoCloseable {
         return true;
     }
 
+    private boolean onPhaseChanged(UserFacingEvent event) {
+        String phase = asString(event.data().get("phase"));
+        if (!"MODE_SELECTION".equals(phase)) {
+            return false;
+        }
+        if (participants.isEmpty() && eliminatedPlayers.isEmpty()) {
+            return false;
+        }
+        participants.clear();
+        eliminatedPlayers.clear();
+        return true;
+    }
+
     private PlayerStats mutableStatsOf(UUID playerId, ScoreRule rule) {
-        return statsByPlayer.computeIfAbsent(playerId, ignored -> PlayerStats.create(playerId, rule.initialScore()));
+        PlayerStats stats = statsByPlayer.computeIfAbsent(
+                playerId,
+                ignored -> PlayerStats.create(playerId, Math.max(rule.initialScore(), scoreFloor()))
+        );
+        enforceScoreFloor(stats);
+        return stats;
     }
 
     private void requestSave() {
@@ -337,15 +414,37 @@ public final class LiarBarStatsService implements AutoCloseable {
         try {
             repository.initSchema();
             Map<UUID, PlayerStatsSnapshot> snapshots = repository.loadAll();
+            boolean repaired = false;
             synchronized (lock) {
                 for (Map.Entry<UUID, PlayerStatsSnapshot> entry : snapshots.entrySet()) {
-                    statsByPlayer.put(entry.getKey(), PlayerStats.fromSnapshot(entry.getValue()));
+                    PlayerStats stats = PlayerStats.fromSnapshot(entry.getValue());
+                    if (enforceScoreFloor(stats)) {
+                        repaired = true;
+                    }
+                    statsByPlayer.put(entry.getKey(), stats);
                 }
+            }
+            if (repaired) {
+                requestSave();
             }
             refreshSeasonCache();
         } catch (Exception ex) {
             plugin.getLogger().warning("从数据库加载统计数据失败: " + rootMessage(ex));
         }
+    }
+
+    private int scoreFloor() {
+        return HARD_SCORE_FLOOR;
+    }
+
+    private boolean enforceScoreFloor(PlayerStats stats) {
+        int floor = scoreFloor();
+        int score = stats.score();
+        if (score >= floor) {
+            return false;
+        }
+        stats.applyScoreDelta(floor - score);
+        return true;
     }
 
     private SeasonResetResult resetSeasonBlocking() {
@@ -367,6 +466,7 @@ public final class LiarBarStatsService implements AutoCloseable {
                 synchronized (persistenceLock) {
                     result = repository.archiveAndClear(snapshots, Instant.now().getEpochSecond());
                 }
+                invalidateAllCaches();
                 pushSeasonCache(result.seasonId());
                 return result;
             } catch (Exception dbEx) {
@@ -383,19 +483,26 @@ public final class LiarBarStatsService implements AutoCloseable {
     }
 
     private SeasonListResult listSeasonsBlocking(int page, int pageSize) {
+        String cacheKey = page + ":" + pageSize;
+        SeasonListResult cached = seasonListCache.getIfPresent(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
         try {
             synchronized (persistenceLock) {
                 int totalSeasons = repository.countSeasons();
                 int totalPages = Math.max(1, (totalSeasons + pageSize - 1) / pageSize);
                 int safePage = Math.min(page, totalPages);
                 List<SeasonHistorySummary> entries = repository.listSeasons(safePage, pageSize);
-                return new SeasonListResult(
+                SeasonListResult result = new SeasonListResult(
                         safePage,
                         pageSize,
                         totalSeasons,
                         totalPages,
                         entries
                 );
+                seasonListCache.put(cacheKey, result);
+                return result;
             }
         } catch (Exception ex) {
             throw new IllegalStateException("查询赛季列表失败", ex);
@@ -403,16 +510,29 @@ public final class LiarBarStatsService implements AutoCloseable {
     }
 
     private SeasonTopResult topForSeasonBlocking(int seasonId, int page, int pageSize, SeasonTopSort sort) {
+        String cacheKey = seasonId + ":" + page + ":" + pageSize + ":" + sort.name();
+        SeasonTopResult cached = seasonTopCache.getIfPresent(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
         try {
             synchronized (persistenceLock) {
                 Optional<SeasonTopResult> result = repository.topForSeason(seasonId, page, pageSize, sort);
-                return result.orElseThrow(() -> new IllegalArgumentException("找不到赛季 #" + seasonId));
+                SeasonTopResult value = result.orElseThrow(() -> new IllegalArgumentException("找不到赛季 #" + seasonId));
+                seasonTopCache.put(cacheKey, value);
+                return value;
             }
         } catch (RuntimeException ex) {
             throw ex;
         } catch (Exception ex) {
             throw new IllegalStateException("查询赛季排行榜失败", ex);
         }
+    }
+
+    private void invalidateAllCaches() {
+        topCache.invalidateAll();
+        seasonTopCache.invalidateAll();
+        seasonListCache.invalidateAll();
     }
 
     private void refreshSeasonCache() {

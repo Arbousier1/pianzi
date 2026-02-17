@@ -36,13 +36,34 @@ public final class I18n {
         if (args == null || args.isEmpty()) {
             return template;
         }
-        String resolved = template;
-        for (Map.Entry<String, ?> entry : args.entrySet()) {
-            String placeholder = "{" + entry.getKey() + "}";
-            Object value = entry.getValue();
-            resolved = resolved.replace(placeholder, value == null ? "" : String.valueOf(value));
+        // Single-pass scan: find '{' ... '}' and resolve from args map directly.
+        // Avoids creating N intermediate String objects from chained replace().
+        StringBuilder sb = new StringBuilder(template.length() + 16);
+        int len = template.length();
+        int i = 0;
+        while (i < len) {
+            char c = template.charAt(i);
+            if (c == '{') {
+                int close = template.indexOf('}', i + 1);
+                if (close > i) {
+                    String name = template.substring(i + 1, close);
+                    Object value = args.get(name);
+                    if (value != null) {
+                        sb.append(value);
+                    } else if (args.containsKey(name)) {
+                        // explicit null → empty
+                    } else {
+                        // not a known placeholder, keep literal
+                        sb.append(template, i, close + 1);
+                    }
+                    i = close + 1;
+                    continue;
+                }
+            }
+            sb.append(c);
+            i++;
         }
-        return resolved;
+        return sb.toString();
     }
 
     public String formatEpochSecond(long epochSecond) {

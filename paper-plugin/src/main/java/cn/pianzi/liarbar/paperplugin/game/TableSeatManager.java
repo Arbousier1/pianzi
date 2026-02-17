@@ -61,6 +61,7 @@ public final class TableSeatManager {
                 case "PLAYER_JOINED" -> handlePlayerJoined(event);
                 case "GAME_FINISHED" -> handleGameFinished(event);
                 case "PLAYER_ELIMINATED" -> handlePlayerEliminated(event);
+                case "PLAYER_FORFEITED" -> handlePlayerForfeited(event);
             }
         }
     }
@@ -196,6 +197,21 @@ public final class TableSeatManager {
                     entity.removePassenger(passenger);
                 }
             }
+        }
+    }
+
+    private void handlePlayerForfeited(UserFacingEvent event) {
+        UUID playerId = asUuid(event.data().get("playerId"));
+        if (playerId == null) {
+            return;
+        }
+        Player player = Bukkit.getPlayer(playerId);
+        if (player == null) {
+            return;
+        }
+        Entity vehicle = player.getVehicle();
+        if (vehicle instanceof Interaction) {
+            vehicle.removePassenger(player);
         }
     }
 

@@ -4,7 +4,10 @@ import java.util.Map;
 
 public record CoreEvent(CoreEventType type, String message, Map<String, Object> data) {
     public CoreEvent {
-        data = data == null ? Map.of() : Map.copyOf(data);
+        if (data == null) {
+            data = Map.of();
+        }
+        // Skip defensive copy for already-unmodifiable maps (Map.of / Map.copyOf)
     }
 
     public static CoreEvent of(CoreEventType type, String message) {
@@ -12,7 +15,7 @@ public record CoreEvent(CoreEventType type, String message, Map<String, Object> 
     }
 
     public static CoreEvent of(CoreEventType type, String message, Map<String, Object> data) {
-        return new CoreEvent(type, message, data);
+        return new CoreEvent(type, message, Map.copyOf(data));
     }
 }
 

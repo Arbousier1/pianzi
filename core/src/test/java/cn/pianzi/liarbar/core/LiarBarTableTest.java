@@ -23,11 +23,12 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LiarBarTableTest {
     @Test
-    void shouldAutoSelectLifeModeWhenJoinWithoutModeSelection() {
+    void shouldRejectJoinBeforeModeSelection() {
         LiarBarTable table = new LiarBarTable(
                 "auto",
                 testConfig(),
@@ -35,14 +36,8 @@ class LiarBarTableTest {
                 new SeededRandomSource(11L)
         );
 
-        UUID playerId = UUID.randomUUID();
-        List<CoreEvent> events = table.join(playerId);
-        GameSnapshot snapshot = table.snapshot();
-
-        assertEquals(GamePhase.JOINING, snapshot.phase());
-        assertEquals(TableMode.LIFE_ONLY, snapshot.mode());
-        assertTrue(containsEvent(events, CoreEventType.MODE_SELECTED));
-        assertTrue(containsEvent(events, CoreEventType.PLAYER_JOINED));
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> table.join(UUID.randomUUID()));
+        assertEquals("cannot join in phase MODE_SELECTION", ex.getMessage());
     }
 
     @Test
@@ -68,6 +63,52 @@ class LiarBarTableTest {
                 .filter(player -> player.handSize() == 5)
                 .count();
         assertEquals(2, aliveWithFiveCards);
+    }
+
+    @Test
+    void shouldReturnToIdleWithoutGameFinishedWhenJoinTimeoutHasNoPlayers() {
+        LiarBarTable table = new LiarBarTable(
+                "join_timeout_empty",
+                testConfig(),
+                EconomyPort.noop(),
+                new SeededRandomSource(21L)
+        );
+        table.selectMode(UUID.randomUUID(), TableMode.LIFE_ONLY);
+
+        List<CoreEvent> events = table.tickSecond();
+
+        assertEquals(GamePhase.MODE_SELECTION, table.snapshot().phase());
+        assertEquals(0, table.snapshot().joinedCount());
+        assertTrue(!containsEvent(events, CoreEventType.GAME_FINISHED));
+    }
+
+    @Test
+    void shouldTimeoutModeSelectionWithoutGameFinished() {
+        TableConfig config = new TableConfig(
+                1,
+                20,
+                5,
+                30,
+                30,
+                5,
+                4,
+                5,
+                1,
+                3,
+                6
+        );
+        LiarBarTable table = new LiarBarTable(
+                "mode_timeout",
+                config,
+                EconomyPort.noop(),
+                new SeededRandomSource(22L)
+        );
+
+        List<CoreEvent> events = table.tickSecond();
+
+        assertEquals(GamePhase.MODE_SELECTION, table.snapshot().phase());
+        assertEquals(0, table.snapshot().joinedCount());
+        assertTrue(!containsEvent(events, CoreEventType.GAME_FINISHED));
     }
 
     @Test
@@ -165,10 +206,12 @@ class LiarBarTableTest {
         UUID p2 = UUID.randomUUID();
         table.join(p1);
         table.join(p2);
+        table.tickSecond(); // JOINING -> DEALING
+        table.tickSecond(); // DEALING -> FIRST_TURN
 
         table.playerDisconnected(p2);
 
-        assertEquals(GamePhase.FINISHED, table.snapshot().phase());
+        assertEquals(GamePhase.MODE_SELECTION, table.snapshot().phase());
         assertEquals(1, economy.rewardCalls);
         assertEquals(2, economy.lastRewardAmount);
         assertEquals(TableMode.LIFE_ONLY, economy.lastRewardMode);
@@ -195,6 +238,8 @@ class LiarBarTableTest {
         assertTrue(containsEvent(events, CoreEventType.PLAYER_FORFEITED));
         assertTrue(!containsEvent(events, CoreEventType.PLAYER_ELIMINATED));
         assertEquals(GamePhase.DEALING, table.snapshot().phase());
+        assertEquals(2, table.snapshot().players().size());
+        assertTrue(table.snapshot().players().stream().noneMatch(p -> p.playerId().equals(current)));
     }
 
     @Test

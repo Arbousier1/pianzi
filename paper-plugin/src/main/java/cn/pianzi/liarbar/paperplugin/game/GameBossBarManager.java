@@ -31,6 +31,9 @@ public final class GameBossBarManager {
     /** playerId → tableId (tracks which table a player is in) */
     private final Map<UUID, String> playerTables = new ConcurrentHashMap<>();
 
+    /** tableId → set of player UUIDs at that table (reverse index for fast lookup) */
+    private final Map<String, java.util.Set<UUID>> tablePlayerSets = new ConcurrentHashMap<>();
+
     /** tableId → current main rank */
     private final Map<String, String> tableMainRank = new ConcurrentHashMap<>();
 
@@ -68,9 +71,10 @@ public final class GameBossBarManager {
      * Remove all boss bars for players at a specific table (used on table delete).
      */
     public void removeTable(String tableId) {
-        for (Map.Entry<UUID, String> entry : List.copyOf(playerTables.entrySet())) {
-            if (tableId.equals(entry.getValue())) {
-                removeBarForPlayer(entry.getKey());
+        java.util.Set<UUID> players = tablePlayerSets.remove(tableId);
+        if (players != null) {
+            for (UUID pid : List.copyOf(players)) {
+                removeBarForPlayer(pid);
             }
         }
         tableMainRank.remove(tableId);
@@ -86,6 +90,7 @@ public final class GameBossBarManager {
         }
         activeBars.clear();
         playerTables.clear();
+        tablePlayerSets.clear();
         tableMainRank.clear();
         tableTurn.clear();
         playerBullets.clear();
@@ -98,6 +103,7 @@ public final class GameBossBarManager {
         if (playerId == null || tableId == null) return;
 
         playerTables.put(playerId, tableId);
+        tablePlayerSets.computeIfAbsent(tableId, k -> ConcurrentHashMap.newKeySet()).add(playerId);
         playerBullets.put(playerId, MAX_BULLETS); // default bullets
         playerHandSize.put(playerId, 0);
 
@@ -142,10 +148,11 @@ public final class GameBossBarManager {
 
         tableTurn.put(tableId, turnPlayer);
 
-        // Refresh all players at this table
-        for (Map.Entry<UUID, String> entry : playerTables.entrySet()) {
-            if (tableId.equals(entry.getValue())) {
-                refreshBar(entry.getKey());
+        // Refresh all players at this table using reverse index (O(tableSize) instead of O(allPlayers))
+        java.util.Set<UUID> players = tablePlayerSets.get(tableId);
+        if (players != null) {
+            for (UUID pid : players) {
+                refreshBar(pid);
             }
         }
     }
@@ -192,10 +199,11 @@ public final class GameBossBarManager {
         String tableId = asString(event.data().get("tableId"));
         if (tableId == null) return;
 
-        // Remove bars for all players at this table
-        for (Map.Entry<UUID, String> entry : List.copyOf(playerTables.entrySet())) {
-            if (tableId.equals(entry.getValue())) {
-                removeBarForPlayer(entry.getKey());
+        // Remove bars for all players at this table using reverse index
+        java.util.Set<UUID> players = tablePlayerSets.remove(tableId);
+        if (players != null) {
+            for (UUID pid : players) {
+                removeBarForPlayer(pid);
             }
         }
         tableMainRank.remove(tableId);
@@ -254,7 +262,13 @@ public final class GameBossBarManager {
                 player.hideBossBar(bar);
             }
         }
-        playerTables.remove(playerId);
+        String tableId = playerTables.remove(playerId);
+        if (tableId != null) {
+            java.util.Set<UUID> set = tablePlayerSets.get(tableId);
+            if (set != null) {
+                set.remove(playerId);
+            }
+        }
         playerBullets.remove(playerId);
         playerHandSize.remove(playerId);
     }

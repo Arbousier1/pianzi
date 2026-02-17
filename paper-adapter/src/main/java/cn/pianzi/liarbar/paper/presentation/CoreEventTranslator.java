@@ -34,7 +34,7 @@ public final class CoreEventTranslator {
             );
             case PLAYER_FORFEITED -> UserFacingEvent.broadcast(
                     EventSeverity.WARNING,
-                    "event.player_forfeited",
+                    forfeitMessageKey(event),
                     withEntries(data, Map.of("player", shortPlayer(event.data().get("playerId"))))
             );
             case PHASE_CHANGED -> UserFacingEvent.broadcast(
@@ -113,19 +113,21 @@ public final class CoreEventTranslator {
     }
 
     private Map<String, Object> withType(CoreEvent event) {
-        Map<String, Object> data = new HashMap<>(event.data());
+        // Pre-size to avoid rehash: original data + _eventType entry
+        Map<String, Object> data = HashMap.newHashMap(event.data().size() + 1);
+        data.putAll(event.data());
         data.put("_eventType", event.type().name());
         return data;
     }
 
-    private Map<String, Object> withEntries(Map<String, Object> data, Map<String, Object> extra) {
-        HashMap<String, Object> merged = new HashMap<>(data);
+    private Map<String, Object> withEntries(Map<String, Object> base, Map<String, Object> extra) {
+        // Mutate base in-place — it's already a fresh HashMap from withType()
         for (Map.Entry<String, Object> entry : extra.entrySet()) {
             if (entry.getKey() != null && entry.getValue() != null) {
-                merged.put(entry.getKey(), entry.getValue());
+                base.put(entry.getKey(), entry.getValue());
             }
         }
-        return merged;
+        return base;
     }
 
     private String shortPlayer(Object value) {
@@ -168,5 +170,13 @@ public final class CoreEventTranslator {
             case "KUNKUN_COIN" -> "kunkun";
             default -> mode;
         };
+    }
+
+    private String forfeitMessageKey(CoreEvent event) {
+        Object beforeStart = event.data().get("beforeStart");
+        if (Boolean.TRUE.equals(beforeStart)) {
+            return "event.player_left_before_start";
+        }
+        return "event.player_disconnected_round_reset";
     }
 }

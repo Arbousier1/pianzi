@@ -9,6 +9,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import cn.pianzi.liarbar.paperplugin.game.SavedTable;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -98,6 +100,17 @@ public final class H2StatsRepository implements StatsRepository {
             try (PreparedStatement statement = connection.prepareStatement("""
                     MERGE INTO liarbar_stats_season_meta (id, current_season)
                     KEY(id) VALUES (1, 0)
+                    """)) {
+                statement.executeUpdate();
+            }
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    CREATE TABLE IF NOT EXISTS liarbar_tables (
+                        table_id VARCHAR(255) PRIMARY KEY,
+                        world_name VARCHAR(255) NOT NULL,
+                        x INT NOT NULL,
+                        y INT NOT NULL,
+                        z INT NOT NULL
+                    )
                     """)) {
                 statement.executeUpdate();
             }
@@ -353,6 +366,53 @@ public final class H2StatsRepository implements StatsRepository {
                 totalPages,
                 entries
         ));
+    }
+
+    @Override
+    public void saveTables(List<SavedTable> tables) throws SQLException {
+        try (Connection conn = connection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement del = conn.prepareStatement("DELETE FROM liarbar_tables")) {
+                del.executeUpdate();
+            }
+            if (!tables.isEmpty()) {
+                try (PreparedStatement stmt = conn.prepareStatement("""
+                        INSERT INTO liarbar_tables (table_id, world_name, x, y, z)
+                        VALUES (?, ?, ?, ?, ?)
+                        """)) {
+                    for (SavedTable t : tables) {
+                        stmt.setString(1, t.tableId());
+                        stmt.setString(2, t.worldName());
+                        stmt.setInt(3, t.x());
+                        stmt.setInt(4, t.y());
+                        stmt.setInt(5, t.z());
+                        stmt.addBatch();
+                    }
+                    stmt.executeBatch();
+                }
+            }
+            conn.commit();
+            conn.setAutoCommit(true);
+        }
+    }
+
+    @Override
+    public List<SavedTable> loadTables() throws SQLException {
+        List<SavedTable> tables = new ArrayList<>();
+        try (Connection conn = connection();
+             PreparedStatement stmt = conn.prepareStatement("SELECT table_id, world_name, x, y, z FROM liarbar_tables");
+             ResultSet rs = stmt.executeQuery()) {
+            while (rs.next()) {
+                tables.add(new SavedTable(
+                        rs.getString("table_id"),
+                        rs.getString("world_name"),
+                        rs.getInt("x"),
+                        rs.getInt("y"),
+                        rs.getInt("z")
+                ));
+            }
+        }
+        return tables;
     }
 
     private int countSeasonPlayers(int seasonId) throws SQLException {

@@ -43,6 +43,9 @@ public final class GameEffectsManager {
     /** tableId → set of player UUIDs currently at that table */
     private final Map<String, java.util.Set<UUID>> tablePlayers = new ConcurrentHashMap<>();
 
+    /** playerId → tableId (reverse index for O(1) removal) */
+    private final Map<UUID, String> playerToTable = new ConcurrentHashMap<>();
+
     public GameEffectsManager(TableStructureBuilder structureBuilder, I18n i18n) {
         this.structureBuilder = structureBuilder;
         this.i18n = i18n;
@@ -71,6 +74,7 @@ public final class GameEffectsManager {
         if (playerId == null || tableId == null) return;
 
         tablePlayers.computeIfAbsent(tableId, k -> ConcurrentHashMap.newKeySet()).add(playerId);
+        playerToTable.put(playerId, tableId);
 
         Player player = Bukkit.getPlayer(playerId);
         if (player == null) return;
@@ -164,16 +168,22 @@ public final class GameEffectsManager {
     private void onPlayerEliminated(UserFacingEvent event) {
         UUID playerId = asUuid(event.data().get("playerId"));
         if (playerId == null) return;
-        for (java.util.Set<UUID> players : tablePlayers.values()) {
-            players.remove(playerId);
-        }
+        removePlayerFromTracking(playerId);
     }
 
     private void onPlayerForfeited(UserFacingEvent event) {
         UUID playerId = asUuid(event.data().get("playerId"));
         if (playerId == null) return;
-        for (java.util.Set<UUID> players : tablePlayers.values()) {
-            players.remove(playerId);
+        removePlayerFromTracking(playerId);
+    }
+
+    private void removePlayerFromTracking(UUID playerId) {
+        String tableId = playerToTable.remove(playerId);
+        if (tableId != null) {
+            java.util.Set<UUID> set = tablePlayers.get(tableId);
+            if (set != null) {
+                set.remove(playerId);
+            }
         }
     }
 
@@ -202,17 +212,28 @@ public final class GameEffectsManager {
         firework.setFireworkMeta(meta);
 
         // Clean up table player tracking
-        tablePlayers.remove(tableId);
+        java.util.Set<UUID> removed = tablePlayers.remove(tableId);
+        if (removed != null) {
+            for (UUID pid : removed) {
+                playerToTable.remove(pid);
+            }
+        }
     }
 
     // ── Cleanup ──────────────────────────────────────────────────────
 
     public void removeTable(String tableId) {
-        tablePlayers.remove(tableId);
+        java.util.Set<UUID> removed = tablePlayers.remove(tableId);
+        if (removed != null) {
+            for (UUID pid : removed) {
+                playerToTable.remove(pid);
+            }
+        }
     }
 
     public void removeAll() {
         tablePlayers.clear();
+        playerToTable.clear();
     }
 
     // ── Util ─────────────────────────────────────────────────────────

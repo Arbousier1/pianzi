@@ -1,5 +1,7 @@
 package cn.pianzi.liarbar.paperplugin.stats;
 
+import cn.pianzi.liarbar.paperplugin.game.SavedTable;
+
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +27,12 @@ public interface StatsRepository extends AutoCloseable {
     List<Integer> listSeasonIds(int limit) throws SQLException;
 
     Optional<SeasonTopResult> topForSeason(int seasonId, int page, int pageSize, SeasonTopSort sort) throws SQLException;
+
+    // ── Table persistence ──
+
+    void saveTables(List<SavedTable> tables) throws SQLException;
+
+    List<SavedTable> loadTables() throws SQLException;
 
     @Override
     void close();

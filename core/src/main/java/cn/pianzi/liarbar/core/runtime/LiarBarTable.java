@@ -13,6 +13,7 @@ import cn.pianzi.liarbar.core.snapshot.GameSnapshot;
 import cn.pianzi.liarbar.core.snapshot.PlayerSnapshot;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -99,11 +100,8 @@ public final class LiarBarTable {
 
     public List<CoreEvent> join(UUID playerId) {
         Objects.requireNonNull(playerId, "playerId");
-        List<CoreEvent> events = new ArrayList<>();
-        if (phase == GamePhase.MODE_SELECTION) {
-            autoSelectLifeMode(playerId, events);
-        }
         ensurePhase(GamePhase.JOINING, "join");
+        List<CoreEvent> events = new ArrayList<>();
         if (players.containsKey(playerId)) {
             throw new IllegalStateException("player already joined: " + playerId);
         }
@@ -145,12 +143,14 @@ public final class LiarBarTable {
         if (state == null || !state.alive) {
             return List.of();
         }
+        if (phase == GamePhase.MODE_SELECTION || phase == GamePhase.JOINING) {
+            return removeBeforeGameStart(state);
+        }
 
         List<CoreEvent> events = new ArrayList<>();
-        state.alive = false;
-        aliveCount--;
-        state.hand.clear();
-        state.bullets = 0;
+        players.remove(state.id);
+        seats[state.seat] = null;
+        aliveCount = Math.max(0, aliveCount - 1);
 
         shootCandidates.remove(playerId);
         preferredShooters.remove(playerId);
@@ -168,22 +168,21 @@ public final class LiarBarTable {
         events.add(CoreEvent.of(
                 CoreEventType.PLAYER_FORFEITED,
                 "player disconnected and forfeited",
-                Map.of("playerId", playerId, "seat", state.seat)
+                Map.of(
+                        "playerId", playerId,
+                        "seat", state.seat,
+                        "phase", phase.name(),
+                        "beforeStart", false,
+                        "roundReset", true
+                )
         ));
 
-        UUID winner = soleAlivePlayer();
-        if (winner != null) {
-            finish(winner, "winner_after_disconnect", events);
+        if (alivePlayersCount() == 0) {
+            cancelToIdle("disconnect:no_alive_players", events);
             return Collections.unmodifiableList(events);
         }
 
-        if ((phase == GamePhase.FIRST_TURN || phase == GamePhase.STANDARD_TURN)
-                && currentPlayerId == null) {
-            events.addAll(startDealRound("disconnect_current_player"));
-        } else if (phase == GamePhase.RESOLVE_CHALLENGE
-                && shootCandidates.stream().noneMatch(this::isAlive)) {
-            events.addAll(startDealRound("disconnect_no_shooters"));
-        }
+        events.addAll(startDealRound("disconnect_round_reset"));
 
         return Collections.unmodifiableList(events);
     }
@@ -317,7 +316,7 @@ public final class LiarBarTable {
         switch (phase) {
             case MODE_SELECTION -> {
                 if (phaseSeconds >= config.modeSelectionSeconds()) {
-                    finish(null, "mode_selection_timeout", events);
+                    cancelToIdle("mode_selection_timeout", events);
                 }
             }
             case JOINING -> {
@@ -404,7 +403,7 @@ public final class LiarBarTable {
     private List<CoreEvent> startInitialDeal(String reason) {
         List<CoreEvent> events = new ArrayList<>();
         if (alivePlayersCount() == 0) {
-            finish(null, reason + ":no_players", events);
+            cancelToIdle(reason + ":no_players", events);
             return events;
         }
         for (PlayerState state : players.values()) {
@@ -657,16 +656,71 @@ public final class LiarBarTable {
                 "game finished",
                 payload
         ));
+        resetForIdle();
     }
 
-    private void autoSelectLifeMode(UUID actor, List<CoreEvent> events) {
-        this.mode = TableMode.LIFE_ONLY;
+    private void cancelToIdle(String reason, List<CoreEvent> events) {
+        if (phase != GamePhase.MODE_SELECTION) {
+            setPhase(GamePhase.MODE_SELECTION, events, reason);
+        } else {
+            phaseSeconds = 0;
+        }
+        resetForIdle();
+    }
+
+    private List<CoreEvent> removeBeforeGameStart(PlayerState state) {
+        List<CoreEvent> events = new ArrayList<>();
+        players.remove(state.id);
+        seats[state.seat] = null;
+        joinedCount = Math.max(0, joinedCount - 1);
+        aliveCount = Math.max(0, aliveCount - 1);
+
+        shootCandidates.remove(state.id);
+        preferredShooters.remove(state.id);
+        if (Objects.equals(currentPlayerId, state.id)) {
+            currentPlayerId = null;
+        }
+        if (Objects.equals(lastPlayerId, state.id)) {
+            lastPlayerId = null;
+        }
+        if (Objects.equals(afterGunCandidateId, state.id)) {
+            afterGunCandidateId = null;
+        }
+
         events.add(CoreEvent.of(
-                CoreEventType.MODE_SELECTED,
-                "mode auto selected",
-                Map.of("actor", actor, "mode", TableMode.LIFE_ONLY.name(), "reason", "join_without_mode")
+                CoreEventType.PLAYER_FORFEITED,
+                "player left before game start",
+                Map.of(
+                        "playerId", state.id,
+                        "seat", state.seat,
+                        "phase", phase.name(),
+                        "beforeStart", true
+                )
         ));
-        setPhase(GamePhase.JOINING, events, "auto_mode_selected");
+
+        return Collections.unmodifiableList(events);
+    }
+
+    private void resetForIdle() {
+        players.clear();
+        Arrays.fill(seats, null);
+        centerCards.clear();
+        shootCandidates.clear();
+        preferredShooters.clear();
+
+        mode = TableMode.LIFE_ONLY;
+        phase = GamePhase.MODE_SELECTION;
+        phaseSeconds = 0;
+        joinedCount = 0;
+        aliveCount = 0;
+        round = 0;
+        nextCardId = 1;
+        forceChallenge = false;
+
+        mainRank = null;
+        currentPlayerId = null;
+        lastPlayerId = null;
+        afterGunCandidateId = null;
     }
 
     private List<Card> createRoundDeck(CardRank selectedMain) {
@@ -676,13 +730,23 @@ public final class LiarBarTable {
         addCards(cards, CardRank.K, 5);
         addCards(cards, CardRank.J, 2);
 
-        List<Integer> mainCardIndexes = new ArrayList<>();
+        // Collect main card indexes without allocating a separate list
+        int mainCount = 0;
+        int firstMainIndex = -1;
         for (int i = 0; i < cards.size(); i++) {
             if (cards.get(i).rank() == selectedMain) {
-                mainCardIndexes.add(i);
+                if (firstMainIndex == -1) firstMainIndex = i;
+                mainCount++;
             }
         }
-        int selectedIndex = mainCardIndexes.get(random.nextIntInclusive(0, mainCardIndexes.size() - 1));
+        int pick = random.nextIntInclusive(0, mainCount - 1);
+        int selectedIndex = firstMainIndex;
+        for (int i = firstMainIndex, seen = 0; i < cards.size(); i++) {
+            if (cards.get(i).rank() == selectedMain) {
+                if (seen == pick) { selectedIndex = i; break; }
+                seen++;
+            }
+        }
         cards.set(selectedIndex, cards.get(selectedIndex).asDemon());
         return cards;
     }
@@ -888,4 +952,3 @@ public final class LiarBarTable {
         return normalized;
     }
 }
-

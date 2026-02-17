@@ -34,6 +34,10 @@ public final class PaperCommandFacade {
         return run("command.result.challenged", () -> service.challenge(tableId, playerId));
     }
 
+    public CompletionStage<CommandOutcome> leave(String tableId, UUID playerId) {
+        return run("command.result.left", () -> service.playerDisconnected(tableId, playerId));
+    }
+
     public CompletionStage<CommandOutcome> forceStop(String tableId) {
         return run("command.result.stopped", () -> service.forceStop(tableId));
     }

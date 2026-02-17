@@ -40,7 +40,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 public final class LiarBarCommandExecutor implements TabExecutor {
-    private static final List<String> SUBCOMMANDS = List.of("mode", "join", "play", "challenge", "stop", "status", "create", "delete", "tables", "stats", "top", "season", "reload", "help");
+    private static final List<String> SUBCOMMANDS = List.of("mode", "join", "play", "challenge", "leave", "stop", "status", "create", "delete", "tables", "stats", "top", "season", "reload", "help");
     private static final List<String> MODES = List.of("life", "fantuan", "kunkun");
 
     private final JavaPlugin plugin;
@@ -88,6 +88,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
             case "join" -> handleJoin(sender, args);
             case "play" -> handlePlay(sender, args);
             case "challenge" -> handleChallenge(sender, args);
+            case "leave" -> handleLeave(sender, args);
             case "stop" -> handleStop(sender, args);
             case "status" -> handleStatus(sender, args);
             case "create" -> handleCreate(sender, args);
@@ -190,6 +191,22 @@ public final class LiarBarCommandExecutor implements TabExecutor {
 
         String tableId = args[1];
         dispatchOutcome(sender, commandFacade.challenge(tableId, player.getUniqueId()));
+        return true;
+    }
+
+    private boolean handleLeave(CommandSender sender, String[] args) {
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+
+        if (args.length < 2) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.leave")));
+            return true;
+        }
+
+        String tableId = args[1];
+        dispatchOutcome(sender, commandFacade.leave(tableId, player.getUniqueId()));
         return true;
     }
 
@@ -576,6 +593,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         send(sender, i18n.t("command.help.join", vars));
         send(sender, i18n.t("command.help.play", vars));
         send(sender, i18n.t("command.help.challenge", vars));
+        send(sender, i18n.t("command.help.leave", vars));
         send(sender, i18n.t("command.help.status", vars));
         send(sender, i18n.t("command.help.create", vars));
         send(sender, i18n.t("command.help.delete", vars));
@@ -672,6 +690,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
                 equalsIgnoreCase(args[0], "join")
                         || equalsIgnoreCase(args[0], "play")
                         || equalsIgnoreCase(args[0], "challenge")
+                        || equalsIgnoreCase(args[0], "leave")
                         || equalsIgnoreCase(args[0], "status")
                         || equalsIgnoreCase(args[0], "stop")
                         || equalsIgnoreCase(args[0], "delete")

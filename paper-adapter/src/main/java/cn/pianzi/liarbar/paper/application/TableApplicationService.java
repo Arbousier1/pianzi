@@ -10,9 +10,7 @@ import cn.pianzi.liarbar.core.snapshot.GameSnapshot;
 import cn.pianzi.liarbar.paper.presentation.CoreEventTranslator;
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -105,11 +103,7 @@ public final class TableApplicationService implements AutoCloseable {
 
     private List<UserFacingEvent> injectTableId(List<UserFacingEvent> events, String tableId) {
         return events.stream()
-                .map(e -> {
-                    Map<String, Object> enriched = new HashMap<>(e.data());
-                    enriched.put("tableId", tableId);
-                    return new UserFacingEvent(e.severity(), e.message(), e.targetPlayer(), enriched);
-                })
+                .map(e -> e.withTableId(tableId))
                 .toList();
     }
 

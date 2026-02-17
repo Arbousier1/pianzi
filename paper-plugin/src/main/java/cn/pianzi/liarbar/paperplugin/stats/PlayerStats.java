@@ -1,6 +1,5 @@
 package cn.pianzi.liarbar.paperplugin.stats;
 
-import java.time.Instant;
 import java.util.UUID;
 
 final class PlayerStats {
@@ -98,6 +97,6 @@ final class PlayerStats {
     }
 
     private void touch() {
-        updatedAtEpochSecond = Instant.now().getEpochSecond();
+        updatedAtEpochSecond = System.currentTimeMillis() / 1000;
     }
 }

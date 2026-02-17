@@ -11,9 +11,17 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.Map;
 import java.util.UUID;
 
 public final class PacketEventsActionBarPublisher implements PacketEventsPublisher {
+    private static final Map<EventSeverity, String> COLOR_TAGS = Map.of(
+            EventSeverity.INFO, "gray",
+            EventSeverity.SUCCESS, "green",
+            EventSeverity.WARNING, "yellow",
+            EventSeverity.ERROR, "red"
+    );
+
     private final JavaPlugin plugin;
     private final I18n i18n;
     private boolean packetEventsReady;
@@ -43,8 +51,12 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
 
     private void publishToPlayer(Player player, UserFacingEvent event) {
         String resolvedMessage = i18n.t(event.message(), event.data());
-        String body = "<" + colorTag(event.severity()) + ">" + MiniMessageSupport.escape(resolvedMessage) + "</" + colorTag(event.severity()) + ">";
-        String line = MiniMessageSupport.prefixed(body);
+        String tag = COLOR_TAGS.getOrDefault(event.severity(), "gray");
+        String escaped = MiniMessageSupport.escape(resolvedMessage);
+        // Pre-size: <tag> + escaped + </tag> ≈ tag*2 + escaped + 5 overhead
+        StringBuilder sb = new StringBuilder(tag.length() * 2 + escaped.length() + 6);
+        sb.append('<').append(tag).append('>').append(escaped).append("</").append(tag).append('>');
+        String line = MiniMessageSupport.prefixed(sb.toString());
         Component component = MiniMessageSupport.parse(line);
         player.sendMessage(component);
 
@@ -62,15 +74,6 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
                 plugin.getLogger().warning("PacketEvents 发送消息失败，已切换为仅 Bukkit 消息方式: " + rootMessage(throwable));
             }
         }
-    }
-
-    private String colorTag(EventSeverity severity) {
-        return switch (severity) {
-            case INFO -> "gray";
-            case SUCCESS -> "green";
-            case WARNING -> "yellow";
-            case ERROR -> "red";
-        };
     }
 
     private String rootMessage(Throwable throwable) {
