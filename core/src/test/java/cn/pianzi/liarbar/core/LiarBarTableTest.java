@@ -23,12 +23,11 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LiarBarTableTest {
     @Test
-    void shouldRejectJoinBeforeModeSelection() {
+    void shouldAllowJoinBeforeModeSelectionAndAssignHost() {
         LiarBarTable table = new LiarBarTable(
                 "auto",
                 testConfig(),
@@ -36,8 +35,13 @@ class LiarBarTableTest {
                 new SeededRandomSource(11L)
         );
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> table.join(UUID.randomUUID()));
-        assertEquals("cannot join in phase MODE_SELECTION", ex.getMessage());
+        UUID host = UUID.randomUUID();
+        List<CoreEvent> events = table.join(host);
+
+        assertEquals(GamePhase.MODE_SELECTION, table.snapshot().phase());
+        assertEquals(1, table.snapshot().joinedCount());
+        assertEquals(host, table.snapshot().owner().orElseThrow());
+        assertTrue(containsEvent(events, CoreEventType.HOST_ASSIGNED));
     }
 
     @Test
@@ -48,8 +52,9 @@ class LiarBarTableTest {
                 EconomyPort.noop(),
                 new SeededRandomSource(1L)
         );
-        table.selectMode(UUID.randomUUID(), TableMode.LIFE_ONLY);
-        table.join(UUID.randomUUID());
+        UUID host = UUID.randomUUID();
+        table.join(host);
+        table.selectMode(host, TableMode.LIFE_ONLY);
         table.join(UUID.randomUUID());
 
         table.tickSecond();
@@ -73,7 +78,10 @@ class LiarBarTableTest {
                 EconomyPort.noop(),
                 new SeededRandomSource(21L)
         );
-        table.selectMode(UUID.randomUUID(), TableMode.LIFE_ONLY);
+        UUID host = UUID.randomUUID();
+        table.join(host);
+        table.selectMode(host, TableMode.LIFE_ONLY);
+        table.playerDisconnected(host);
 
         List<CoreEvent> events = table.tickSecond();
 
@@ -119,8 +127,9 @@ class LiarBarTableTest {
                 EconomyPort.noop(),
                 new SeededRandomSource(2L)
         );
-        table.selectMode(UUID.randomUUID(), TableMode.LIFE_ONLY);
-        table.join(UUID.randomUUID());
+        UUID host = UUID.randomUUID();
+        table.join(host);
+        table.selectMode(host, TableMode.LIFE_ONLY);
         table.join(UUID.randomUUID());
         table.tickSecond(); // JOINING -> DEALING
         table.tickSecond(); // DEALING -> FIRST_TURN
@@ -143,10 +152,10 @@ class LiarBarTableTest {
                 EconomyPort.noop(),
                 new SeededRandomSource(3L)
         );
-        table.selectMode(UUID.randomUUID(), TableMode.LIFE_ONLY);
         UUID p1 = UUID.randomUUID();
         UUID p2 = UUID.randomUUID();
         table.join(p1);
+        table.selectMode(p1, TableMode.LIFE_ONLY);
         table.join(p2);
         table.tickSecond();
         table.tickSecond();
@@ -179,10 +188,10 @@ class LiarBarTableTest {
                 economy,
                 new SeededRandomSource(4L)
         );
-        table.selectMode(UUID.randomUUID(), TableMode.KUNKUN_COIN);
         UUID p1 = UUID.randomUUID();
         UUID p2 = UUID.randomUUID();
         table.join(p1);
+        table.selectMode(p1, TableMode.KUNKUN_COIN);
         table.join(p2);
 
         List<CoreEvent> events = table.forceStop();
@@ -201,10 +210,10 @@ class LiarBarTableTest {
                 economy,
                 new SeededRandomSource(12L)
         );
-        table.selectMode(UUID.randomUUID(), TableMode.LIFE_ONLY);
         UUID p1 = UUID.randomUUID();
         UUID p2 = UUID.randomUUID();
         table.join(p1);
+        table.selectMode(p1, TableMode.LIFE_ONLY);
         table.join(p2);
         table.tickSecond(); // JOINING -> DEALING
         table.tickSecond(); // DEALING -> FIRST_TURN
@@ -225,8 +234,9 @@ class LiarBarTableTest {
                 EconomyPort.noop(),
                 new SeededRandomSource(13L)
         );
-        table.selectMode(UUID.randomUUID(), TableMode.LIFE_ONLY);
-        table.join(UUID.randomUUID());
+        UUID host = UUID.randomUUID();
+        table.join(host);
+        table.selectMode(host, TableMode.LIFE_ONLY);
         table.join(UUID.randomUUID());
         table.join(UUID.randomUUID());
         table.tickSecond(); // JOINING -> DEALING
@@ -261,10 +271,11 @@ class LiarBarTableTest {
                 "disconnect_shooter",
                 config,
                 EconomyPort.noop(),
-                new SequenceRandomSource(1, 0, 0, 1, 0)
+                new SequenceRandomSource(1, 0, 0, 1, 0, 0)
         );
-        table.selectMode(UUID.randomUUID(), TableMode.LIFE_ONLY);
-        table.join(UUID.randomUUID());
+        UUID host = UUID.randomUUID();
+        table.join(host);
+        table.selectMode(host, TableMode.LIFE_ONLY);
         table.join(UUID.randomUUID());
         table.join(UUID.randomUUID());
         table.tickSecond(); // JOINING -> DEALING
@@ -309,8 +320,9 @@ class LiarBarTableTest {
                 new SequenceRandomSource(0, 0, 0)
         );
 
-        table.selectMode(UUID.randomUUID(), TableMode.LIFE_ONLY);
-        table.join(UUID.randomUUID());
+        UUID host = UUID.randomUUID();
+        table.join(host);
+        table.selectMode(host, TableMode.LIFE_ONLY);
         table.join(UUID.randomUUID());
         table.tickSecond();
         table.tickSecond();
@@ -389,8 +401,9 @@ class LiarBarTableTest {
                 6
         );
         LiarBarTable table = new LiarBarTable("outcome", config, EconomyPort.noop(), randomSource);
-        table.selectMode(UUID.randomUUID(), TableMode.LIFE_ONLY);
-        table.join(UUID.randomUUID());
+        UUID host = UUID.randomUUID();
+        table.join(host);
+        table.selectMode(host, TableMode.LIFE_ONLY);
         table.join(UUID.randomUUID());
         table.tickSecond();
         table.tickSecond();
