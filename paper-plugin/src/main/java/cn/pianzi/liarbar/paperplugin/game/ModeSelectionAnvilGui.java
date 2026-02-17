@@ -16,7 +16,6 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.PrepareAnvilEvent;
-import org.bukkit.inventory.AnvilInventory;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -85,7 +84,7 @@ public final class ModeSelectionAnvilGui implements Listener {
             return;
         }
 
-        TableMode mode = parseMode(readRenameText(event.getInventory()));
+        TableMode mode = parseMode(readRenameText(event.getView(), event.getInventory()));
         if (mode == null) {
             event.setResult(null);
             return;
@@ -112,7 +111,7 @@ public final class ModeSelectionAnvilGui implements Listener {
         }
         event.setCancelled(true);
 
-        TableMode mode = parseMode(readRenameText((AnvilInventory) event.getView().getTopInventory()));
+        TableMode mode = parseMode(readRenameText(event.getView(), event.getView().getTopInventory()));
         if (mode == null) {
             player.sendMessage(MiniMessageSupport.parse(MiniMessageSupport.prefixed(
                     i18n.t("ui.mode_gui.invalid_input")
@@ -254,14 +253,22 @@ public final class ModeSelectionAnvilGui implements Listener {
         };
     }
 
-    private String readRenameText(AnvilInventory inventory) {
-        try {
-            Method method = inventory.getClass().getMethod("getRenameText");
-            Object value = method.invoke(inventory);
-            return value != null ? String.valueOf(value) : "";
-        } catch (Throwable ignored) {
-            return "";
+    private String readRenameText(Object... sources) {
+        for (Object source : sources) {
+            if (source == null) {
+                continue;
+            }
+            try {
+                Method method = source.getClass().getMethod("getRenameText");
+                Object value = method.invoke(source);
+                if (value != null) {
+                    return String.valueOf(value);
+                }
+            } catch (Throwable ignored) {
+                // try next source
+            }
         }
+        return "";
     }
 
     private record ModeSelectionHolder(String tableId, UUID sessionId) implements InventoryHolder {
