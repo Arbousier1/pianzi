@@ -81,7 +81,7 @@ public final class LiarBarTable {
         this.afterGunCandidateId = null;
     }
 
-    public synchronized List<CoreEvent> selectMode(UUID actor, TableMode selectedMode) {
+    public List<CoreEvent> selectMode(UUID actor, TableMode selectedMode) {
         Objects.requireNonNull(actor, "actor");
         Objects.requireNonNull(selectedMode, "selectedMode");
         ensurePhase(GamePhase.MODE_SELECTION, "select mode");
@@ -97,7 +97,7 @@ public final class LiarBarTable {
         return Collections.unmodifiableList(events);
     }
 
-    public synchronized List<CoreEvent> join(UUID playerId) {
+    public List<CoreEvent> join(UUID playerId) {
         Objects.requireNonNull(playerId, "playerId");
         List<CoreEvent> events = new ArrayList<>();
         if (phase == GamePhase.MODE_SELECTION) {
@@ -135,7 +135,7 @@ public final class LiarBarTable {
         return Collections.unmodifiableList(events);
     }
 
-    public synchronized List<CoreEvent> playerDisconnected(UUID playerId) {
+    public List<CoreEvent> playerDisconnected(UUID playerId) {
         Objects.requireNonNull(playerId, "playerId");
         if (phase == GamePhase.FINISHED) {
             return List.of();
@@ -188,7 +188,7 @@ public final class LiarBarTable {
         return Collections.unmodifiableList(events);
     }
 
-    public synchronized List<CoreEvent> play(UUID playerId, List<Integer> oneBasedSlots) {
+    public List<CoreEvent> play(UUID playerId, List<Integer> oneBasedSlots) {
         Objects.requireNonNull(playerId, "playerId");
         Objects.requireNonNull(oneBasedSlots, "oneBasedSlots");
         if (phase != GamePhase.FIRST_TURN && phase != GamePhase.STANDARD_TURN) {
@@ -242,7 +242,7 @@ public final class LiarBarTable {
         return Collections.unmodifiableList(events);
     }
 
-    public synchronized List<CoreEvent> challenge(UUID playerId) {
+    public List<CoreEvent> challenge(UUID playerId) {
         Objects.requireNonNull(playerId, "playerId");
         ensurePhase(GamePhase.STANDARD_TURN, "challenge");
         if (!Objects.equals(currentPlayerId, playerId)) {
@@ -299,7 +299,7 @@ public final class LiarBarTable {
         return Collections.unmodifiableList(events);
     }
 
-    public synchronized List<CoreEvent> tickSecond() {
+    public List<CoreEvent> tickSecond() {
         if (phase == GamePhase.FINISHED) {
             return List.of();
         }
@@ -343,7 +343,7 @@ public final class LiarBarTable {
         return Collections.unmodifiableList(events);
     }
 
-    public synchronized List<CoreEvent> forceStop() {
+    public List<CoreEvent> forceStop() {
         if (phase == GamePhase.FINISHED) {
             return List.of();
         }
@@ -357,7 +357,7 @@ public final class LiarBarTable {
         return Collections.unmodifiableList(events);
     }
 
-    public synchronized GameSnapshot snapshot() {
+    public GameSnapshot snapshot() {
         List<PlayerSnapshot> snapshots = new ArrayList<>(joinedCount);
         for (int seat = 1; seat <= config.maxPlayers(); seat++) {
             UUID playerId = seats[seat];

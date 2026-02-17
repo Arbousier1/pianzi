@@ -7,6 +7,7 @@ import cn.pianzi.liarbar.core.port.RandomSource;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class LiarBarRuntimeManager implements AutoCloseable {
@@ -28,11 +29,17 @@ public final class LiarBarRuntimeManager implements AutoCloseable {
         return Optional.ofNullable(runtimes.get(tableId));
     }
 
-    public void removeTable(String tableId) {
+    public boolean removeTable(String tableId) {
         AsyncTableRuntime runtime = runtimes.remove(tableId);
         if (runtime != null) {
             runtime.close();
+            return true;
         }
+        return false;
+    }
+
+    public Set<String> tableIds() {
+        return Set.copyOf(runtimes.keySet());
     }
 
     @Override

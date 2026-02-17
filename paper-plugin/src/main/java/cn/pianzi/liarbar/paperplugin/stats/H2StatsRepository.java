@@ -30,7 +30,7 @@ public final class H2StatsRepository implements StatsRepository {
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(jdbcUrl);
         config.setDriverClassName("org.h2.Driver");
-        config.setMaximumPoolSize(8);
+        config.setMaximumPoolSize(2);
         config.setPoolName("liarbar-h2");
         this.dataSource = new HikariDataSource(config);
     }

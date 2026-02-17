@@ -12,6 +12,7 @@ import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -31,6 +32,26 @@ public final class TableApplicationService implements AutoCloseable {
 
     public void ensureTable(String tableId, TableConfig config, EconomyPort economyPort, RandomSource randomSource) {
         runtimeManager.createTable(tableId, config, economyPort, randomSource);
+    }
+
+    public boolean tableExists(String tableId) {
+        return runtimeManager.getTable(tableId).isPresent();
+    }
+
+    public boolean createTableIfAbsent(String tableId, TableConfig config, EconomyPort economyPort, RandomSource randomSource) {
+        boolean existed = tableExists(tableId);
+        if (!existed) {
+            runtimeManager.createTable(tableId, config, economyPort, randomSource);
+        }
+        return !existed;
+    }
+
+    public boolean removeTable(String tableId) {
+        return runtimeManager.removeTable(tableId);
+    }
+
+    public Set<String> tableIds() {
+        return runtimeManager.tableIds();
     }
 
     public CompletionStage<List<UserFacingEvent>> selectMode(String tableId, UUID actor, TableMode mode) {

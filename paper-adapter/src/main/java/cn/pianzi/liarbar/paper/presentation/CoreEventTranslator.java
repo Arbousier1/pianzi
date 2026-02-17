@@ -3,7 +3,6 @@ package cn.pianzi.liarbar.paper.presentation;
 import cn.pianzi.liarbar.core.event.CoreEvent;
 import cn.pianzi.liarbar.core.event.CoreEventType;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -11,11 +10,9 @@ import java.util.UUID;
 
 public final class CoreEventTranslator {
     public List<UserFacingEvent> translate(List<CoreEvent> events) {
-        List<UserFacingEvent> translated = new ArrayList<>(events.size());
-        for (CoreEvent event : events) {
-            translated.add(translateOne(event));
-        }
-        return List.copyOf(translated);
+        return events.stream()
+                .map(this::translateOne)
+                .toList();
     }
 
     private UserFacingEvent translateOne(CoreEvent event) {

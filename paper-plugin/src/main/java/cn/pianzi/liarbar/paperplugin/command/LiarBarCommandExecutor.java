@@ -35,9 +35,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
+import java.util.function.BiFunction;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 public final class LiarBarCommandExecutor implements TabExecutor {
-    private static final List<String> SUBCOMMANDS = List.of("mode", "join", "play", "challenge", "stop", "status", "stats", "top", "season", "reload", "help");
+    private static final List<String> SUBCOMMANDS = List.of("mode", "join", "play", "challenge", "stop", "status", "create", "delete", "tables", "stats", "top", "season", "reload", "help");
     private static final List<String> MODES = List.of("life", "fantuan", "kunkun");
 
     private final JavaPlugin plugin;
@@ -46,7 +49,9 @@ public final class LiarBarCommandExecutor implements TabExecutor {
     private final LiarBarStatsService statsService;
     private final DatapackParityRewardService rewardService;
     private final I18n i18n;
-    private final String tableId;
+    private final Supplier<List<String>> tableIdsSupplier;
+    private final BiFunction<Player, String, CreateTableResult> createTableAction;
+    private final Function<String, Boolean> deleteTableAction;
 
     public LiarBarCommandExecutor(
             JavaPlugin plugin,
@@ -55,7 +60,9 @@ public final class LiarBarCommandExecutor implements TabExecutor {
             LiarBarStatsService statsService,
             DatapackParityRewardService rewardService,
             I18n i18n,
-            String tableId
+            Supplier<List<String>> tableIdsSupplier,
+            BiFunction<Player, String, CreateTableResult> createTableAction,
+            Function<String, Boolean> deleteTableAction
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.commandFacade = Objects.requireNonNull(commandFacade, "commandFacade");
@@ -63,7 +70,9 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         this.statsService = Objects.requireNonNull(statsService, "statsService");
         this.rewardService = Objects.requireNonNull(rewardService, "rewardService");
         this.i18n = Objects.requireNonNull(i18n, "i18n");
-        this.tableId = Objects.requireNonNull(tableId, "tableId");
+        this.tableIdsSupplier = Objects.requireNonNull(tableIdsSupplier, "tableIdsSupplier");
+        this.createTableAction = Objects.requireNonNull(createTableAction, "createTableAction");
+        this.deleteTableAction = Objects.requireNonNull(deleteTableAction, "deleteTableAction");
     }
 
     @Override
@@ -76,11 +85,14 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         String subcommand = args[0].toLowerCase(Locale.ROOT);
         return switch (subcommand) {
             case "mode" -> handleMode(sender, args);
-            case "join" -> handleJoin(sender);
+            case "join" -> handleJoin(sender, args);
             case "play" -> handlePlay(sender, args);
-            case "challenge" -> handleChallenge(sender);
-            case "stop" -> handleStop(sender);
-            case "status" -> handleStatus(sender);
+            case "challenge" -> handleChallenge(sender, args);
+            case "stop" -> handleStop(sender, args);
+            case "status" -> handleStatus(sender, args);
+            case "create" -> handleCreate(sender, args);
+            case "delete" -> handleDelete(sender, args);
+            case "tables" -> handleTables(sender);
             case "stats" -> handleStats(sender, args);
             case "top" -> handleTop(sender, args);
             case "season" -> handleSeason(sender, args);
@@ -98,14 +110,15 @@ public final class LiarBarCommandExecutor implements TabExecutor {
             return true;
         }
 
-        if (args.length < 2) {
+        if (args.length < 3) {
             send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.mode")));
             return true;
         }
 
+        String tableId = args[1];
         TableMode mode;
         try {
-            mode = parseMode(args[1]);
+            mode = parseMode(args[2]);
         } catch (IllegalArgumentException ex) {
             send(sender, MiniMessageSupport.prefixed("<red>" + MiniMessageSupport.escape(ex.getMessage()) + "</red>"));
             return true;
@@ -115,9 +128,14 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         return true;
     }
 
-    private boolean handleJoin(CommandSender sender) {
+    private boolean handleJoin(CommandSender sender, String[] args) {
         Player player = requirePlayer(sender);
         if (player == null) {
+            return true;
+        }
+
+        if (args.length < 2) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.join")));
             return true;
         }
 
@@ -130,6 +148,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
             return true;
         }
 
+        String tableId = args[1];
         dispatchOutcome(sender, commandFacade.join(tableId, player.getUniqueId()));
         return true;
     }
@@ -140,14 +159,15 @@ public final class LiarBarCommandExecutor implements TabExecutor {
             return true;
         }
 
-        if (args.length < 2) {
+        if (args.length < 3) {
             send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.play")));
             return true;
         }
 
+        String tableId = args[1];
         List<Integer> slots;
         try {
-            slots = parseSlots(args, 1);
+            slots = parseSlots(args, 2);
         } catch (IllegalArgumentException ex) {
             send(sender, MiniMessageSupport.prefixed("<red>" + MiniMessageSupport.escape(ex.getMessage()) + "</red>"));
             return true;
@@ -157,27 +177,45 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         return true;
     }
 
-    private boolean handleChallenge(CommandSender sender) {
+    private boolean handleChallenge(CommandSender sender, String[] args) {
         Player player = requirePlayer(sender);
         if (player == null) {
             return true;
         }
 
+        if (args.length < 2) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.challenge")));
+            return true;
+        }
+
+        String tableId = args[1];
         dispatchOutcome(sender, commandFacade.challenge(tableId, player.getUniqueId()));
         return true;
     }
 
-    private boolean handleStop(CommandSender sender) {
+    private boolean handleStop(CommandSender sender, String[] args) {
         if (!sender.hasPermission("liarbar.admin")) {
             send(sender, MiniMessageSupport.prefixed(i18n.t("command.no_permission_admin")));
             return true;
         }
 
+        if (args.length < 2) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.stop")));
+            return true;
+        }
+
+        String tableId = args[1];
         dispatchOutcome(sender, commandFacade.forceStop(tableId));
         return true;
     }
 
-    private boolean handleStatus(CommandSender sender) {
+    private boolean handleStatus(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.status")));
+            return true;
+        }
+
+        String tableId = args[1];
         commandFacade.snapshot(tableId).whenComplete((snapshot, throwable) ->
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     if (throwable != null) {
@@ -189,6 +227,58 @@ public final class LiarBarCommandExecutor implements TabExecutor {
                     sendSnapshot(sender, snapshot);
                 })
         );
+        return true;
+    }
+
+    private boolean handleCreate(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("liarbar.admin")) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.no_permission_admin")));
+            return true;
+        }
+        if (!(sender instanceof Player player)) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.player_only")));
+            return true;
+        }
+
+        String requestedId = args.length >= 2 ? args[1] : null;
+        CreateTableResult result = createTableAction.apply(player, requestedId);
+        if (result.created()) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.create.ok", Map.of("table", result.tableId()))));
+        } else {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.create.exists", Map.of("table", result.tableId()))));
+        }
+        return true;
+    }
+
+    private boolean handleDelete(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("liarbar.admin")) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.no_permission_admin")));
+            return true;
+        }
+        if (args.length < 2) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.usage.delete")));
+            return true;
+        }
+
+        String tableId = args[1];
+        if (deleteTableAction.apply(tableId)) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.delete.ok", Map.of("table", tableId))));
+        } else {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.delete.not_found", Map.of("table", tableId))));
+        }
+        return true;
+    }
+
+    private boolean handleTables(CommandSender sender) {
+        List<String> ids = tableIdsSupplier.get();
+        send(sender, i18n.t("command.tables.header"));
+        if (ids.isEmpty()) {
+            send(sender, i18n.t("command.tables.empty"));
+            return true;
+        }
+        for (String id : ids) {
+            send(sender, i18n.t("command.tables.row", Map.of("table", MiniMessageSupport.escape(id))));
+        }
         return true;
     }
 
@@ -480,16 +570,20 @@ public final class LiarBarCommandExecutor implements TabExecutor {
 
     private void sendHelp(CommandSender sender, String label) {
         send(sender, i18n.t("command.help.header"));
-        send(sender, "<gray>/" + label + " mode [life|fantuan|kunkun]</gray>");
-        send(sender, "<gray>/" + label + " join</gray>");
-        send(sender, "<gray>/" + label + " play [slot...]</gray>");
-        send(sender, "<gray>/" + label + " challenge</gray>");
-        send(sender, "<gray>/" + label + " status</gray>");
-        send(sender, "<gray>/" + label + " stats [player]</gray>");
-        send(sender, "<gray>/" + label + " top [limit]</gray>");
-        send(sender, "<gray>/" + label + " stop</gray>");
-        send(sender, "<gray>/" + label + " season [info|list [page] [size]|top <seasonId> [page] [size] [sort]|reset confirm]</gray>");
-        send(sender, "<gray>/" + label + " reload</gray>");
+        Map<String, String> vars = Map.of("label", MiniMessageSupport.escape(label));
+        send(sender, i18n.t("command.help.mode", vars));
+        send(sender, i18n.t("command.help.join", vars));
+        send(sender, i18n.t("command.help.play", vars));
+        send(sender, i18n.t("command.help.challenge", vars));
+        send(sender, i18n.t("command.help.status", vars));
+        send(sender, i18n.t("command.help.create", vars));
+        send(sender, i18n.t("command.help.delete", vars));
+        send(sender, i18n.t("command.help.tables", vars));
+        send(sender, i18n.t("command.help.stats", vars));
+        send(sender, i18n.t("command.help.top", vars));
+        send(sender, i18n.t("command.help.stop", vars));
+        send(sender, i18n.t("command.help.season", vars));
+        send(sender, i18n.t("command.help.reload", vars));
     }
 
     private void sendSeasonInfo(CommandSender sender) {
@@ -564,13 +658,29 @@ public final class LiarBarCommandExecutor implements TabExecutor {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (args.length == 0) {
+            return SUBCOMMANDS;
+        }
         if (args.length == 1) {
             return filterByPrefix(SUBCOMMANDS, args[0]);
         }
         if (args.length == 2 && equalsIgnoreCase(args[0], "mode")) {
-            return filterByPrefix(MODES, args[1]);
+            return filterByPrefix(tableIdsSupplier.get(), args[1]);
         }
-        if (args.length >= 2 && equalsIgnoreCase(args[0], "play")) {
+        if (args.length == 2 && (
+                equalsIgnoreCase(args[0], "join")
+                        || equalsIgnoreCase(args[0], "play")
+                        || equalsIgnoreCase(args[0], "challenge")
+                        || equalsIgnoreCase(args[0], "status")
+                        || equalsIgnoreCase(args[0], "stop")
+                        || equalsIgnoreCase(args[0], "delete")
+        )) {
+            return filterByPrefix(tableIdsSupplier.get(), args[1]);
+        }
+        if (args.length == 3 && equalsIgnoreCase(args[0], "mode")) {
+            return filterByPrefix(MODES, args[2]);
+        }
+        if (args.length >= 3 && equalsIgnoreCase(args[0], "play")) {
             return filterByPrefix(List.of("1", "2", "3", "4", "5"), args[args.length - 1]);
         }
         if (args.length == 2 && equalsIgnoreCase(args[0], "stats")) {
@@ -737,4 +847,8 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         send(sender, MiniMessageSupport.prefixed(i18n.t("command.season.top.invalid_sort")));
         return null;
     }
+
+    public record CreateTableResult(String tableId, boolean created) {
+    }
 }
+

@@ -1,24 +1,10 @@
 package cn.pianzi.liarbar.core.event;
 
 import java.util.Map;
-import java.util.Collections;
-import java.util.HashMap;
 
 public record CoreEvent(CoreEventType type, String message, Map<String, Object> data) {
     public CoreEvent {
-        data = safeCopy(data);
-    }
-
-    private static Map<String, Object> safeCopy(Map<String, Object> input) {
-        try {
-            input.put("__safeCopy_probe__", null);
-            input.remove("__safeCopy_probe__");
-            // mutable – need defensive copy
-            return Collections.unmodifiableMap(new HashMap<>(input));
-        } catch (UnsupportedOperationException e) {
-            // already unmodifiable
-            return input;
-        }
+        data = data == null ? Map.of() : Map.copyOf(data);
     }
 
     public static CoreEvent of(CoreEventType type, String message) {

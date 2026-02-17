@@ -350,21 +350,32 @@ public final class LiarBarStatsService implements AutoCloseable {
 
     private SeasonResetResult resetSeasonBlocking() {
         try {
+            Map<UUID, PlayerStatsSnapshot> snapshots;
             synchronized (lock) {
-                synchronized (persistenceLock) {
-                    Map<UUID, PlayerStatsSnapshot> snapshots = new HashMap<>(statsByPlayer.size());
-                    for (Map.Entry<UUID, PlayerStats> entry : statsByPlayer.entrySet()) {
-                        snapshots.put(entry.getKey(), entry.getValue().snapshot());
-                    }
-                    SeasonResetResult result = repository.archiveAndClear(snapshots, Instant.now().getEpochSecond());
-                    statsByPlayer.clear();
-                    participants.clear();
-                    eliminatedPlayers.clear();
-                    dirty.set(false);
-                    saveScheduled.set(false);
-                    pushSeasonCache(result.seasonId());
-                    return result;
+                snapshots = new HashMap<>(statsByPlayer.size());
+                for (Map.Entry<UUID, PlayerStats> entry : statsByPlayer.entrySet()) {
+                    snapshots.put(entry.getKey(), entry.getValue().snapshot());
                 }
+                statsByPlayer.clear();
+                participants.clear();
+                eliminatedPlayers.clear();
+                dirty.set(false);
+                saveScheduled.set(false);
+            }
+            try {
+                SeasonResetResult result;
+                synchronized (persistenceLock) {
+                    result = repository.archiveAndClear(snapshots, Instant.now().getEpochSecond());
+                }
+                pushSeasonCache(result.seasonId());
+                return result;
+            } catch (Exception dbEx) {
+                synchronized (lock) {
+                    for (Map.Entry<UUID, PlayerStatsSnapshot> entry : snapshots.entrySet()) {
+                        statsByPlayer.putIfAbsent(entry.getKey(), PlayerStats.fromSnapshot(entry.getValue()));
+                    }
+                }
+                throw dbEx;
             }
         } catch (Exception ex) {
             throw new IllegalStateException("赛季重置失败，数据已回滚", ex);

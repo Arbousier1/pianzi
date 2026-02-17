@@ -20,22 +20,19 @@ public final class TablePlayerConnectionListener implements Listener {
     private final PacketEventsViewBridge viewBridge;
     private final LiarBarStatsService statsService;
     private final DatapackParityRewardService rewardService;
-    private final String tableId;
 
     public TablePlayerConnectionListener(
             JavaPlugin plugin,
             TableApplicationService tableService,
             PacketEventsViewBridge viewBridge,
             LiarBarStatsService statsService,
-            DatapackParityRewardService rewardService,
-            String tableId
+            DatapackParityRewardService rewardService
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.tableService = Objects.requireNonNull(tableService, "tableService");
         this.viewBridge = Objects.requireNonNull(viewBridge, "viewBridge");
         this.statsService = Objects.requireNonNull(statsService, "statsService");
         this.rewardService = Objects.requireNonNull(rewardService, "rewardService");
-        this.tableId = Objects.requireNonNull(tableId, "tableId");
     }
 
     @EventHandler
@@ -49,18 +46,23 @@ public final class TablePlayerConnectionListener implements Listener {
     }
 
     private void handleDisconnect(UUID playerId) {
-        tableService.playerDisconnected(tableId, playerId).whenComplete((events, throwable) ->
-                plugin.getServer().getScheduler().runTask(plugin, () -> {
-                    if (throwable != null) {
-                        plugin.getLogger().warning("处理玩家断线事件失败: " + rootMessage(throwable));
-                        return;
-                    }
-                    if (events == null || events.isEmpty()) {
-                        return;
-                    }
-                    applyEvents(events);
-                })
-        );
+        for (String tableId : tableService.tableIds()) {
+            tableService.playerDisconnected(tableId, playerId).whenComplete((events, throwable) ->
+                    plugin.getServer().getScheduler().runTask(plugin, () -> {
+                        if (throwable != null) {
+                            if (!isTableNotFound(throwable)) {
+                                plugin.getLogger().warning("Failed to handle player disconnect for table "
+                                        + tableId + ": " + rootMessage(throwable));
+                            }
+                            return;
+                        }
+                        if (events == null || events.isEmpty()) {
+                            return;
+                        }
+                        applyEvents(events);
+                    })
+            );
+        }
     }
 
     private void applyEvents(List<UserFacingEvent> events) {
@@ -76,5 +78,10 @@ public final class TablePlayerConnectionListener implements Listener {
         }
         String message = current.getMessage();
         return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
+    }
+
+    private boolean isTableNotFound(Throwable throwable) {
+        String message = rootMessage(throwable).toLowerCase();
+        return message.contains("table not found");
     }
 }

@@ -26,10 +26,13 @@ import cn.pianzi.liarbar.paperplugin.stats.StatsRepository;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 
 public final class LiarBarPaperPlugin extends JavaPlugin {
     private PacketEventsLifecycle packetEventsLifecycle;
@@ -40,6 +43,9 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
     private DatapackParityRewardService rewardService;
     private PluginSettings settings;
     private I18n i18n;
+    private TableConfig tableConfig;
+    private EconomyPort economyPort;
+    private RandomSource randomSource;
     private BukkitTask tickTask;
 
     @Override
@@ -55,23 +61,24 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
 
         settings = PluginSettings.fromConfig(getConfig());
         i18n = new I18n(settings.localeTag(), settings.zoneId());
-        TableConfig tableConfig = TableConfigLoader.fromConfig(getConfig());
+        tableConfig = TableConfigLoader.fromConfig(getConfig());
         packetEventsLifecycle.init();
 
         VaultGateway vaultGateway = VaultGatewayFactory.fromServer(this)
                 .orElseGet(() -> {
-                    getLogger().warning("未找到 Vault 经济服务，下注模式将拒绝玩家加入。");
+                    getLogger().warning("Vault economy service not found; wager modes will reject player joins.");
                     return VaultGatewayFactory.disabledGateway();
                 });
 
-        EconomyPort economyPort = new VaultEconomyAdapter(
+        economyPort = new VaultEconomyAdapter(
                 vaultGateway,
                 settings.fantuanEntryFee(),
                 settings.kunkunEntryFee()
         );
+        randomSource = RandomSource.threadLocal();
 
         tableService = new TableApplicationService();
-        tableService.ensureTable(settings.tableId(), tableConfig, economyPort, RandomSource.threadLocal());
+        getLogger().info("No table is auto-created. Use /liarbar create as OP at your current location.");
 
         StatsRepository statsRepository = createStatsRepository(settings.databaseConfig());
         statsService = new LiarBarStatsService(this, statsRepository, settings.scoreRule());
@@ -82,7 +89,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         rewardService = new DatapackParityRewardService(this, i18n);
 
         if (!registerCommands()) {
-            getLogger().severe("注册 /liarbar 命令失败，插件将被禁用。请检查 paper-plugin.yml 是否正确。");
+            getLogger().severe("Failed to register /liarbar command. Disabling plugin.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -93,8 +100,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                         tableService,
                         viewBridge,
                         statsService,
-                        rewardService,
-                        settings.tableId()
+                        rewardService
                 ),
                 this
         );
@@ -133,7 +139,9 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                 statsService,
                 rewardService,
                 i18n,
-                settings.tableId()
+                this::tableIds,
+                this::createConfiguredTableAtPlayer,
+                this::deleteTable
         );
 
         BasicCommand command = new BasicCommand() {
@@ -157,7 +165,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
             registerCommand("liarbar", command);
             return true;
         } catch (RuntimeException ex) {
-            getLogger().log(java.util.logging.Level.SEVERE, "注册 /liarbar 命令失败", ex);
+            getLogger().log(java.util.logging.Level.SEVERE, "Failed to register /liarbar command", ex);
             return false;
         }
     }
@@ -172,41 +180,83 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
     }
 
     private void tickOnce() {
-        tableService.tick(settings.tableId()).whenComplete((events, throwable) ->
-                getServer().getScheduler().runTask(this, () -> {
-                    if (throwable != null) {
-                        getLogger().log(java.util.logging.Level.WARNING, "牌桌 tick 执行失败", throwable);
-                        return;
+        Collection<String> ids = tableService.tableIds();
+        if (ids.isEmpty()) {
+            return;
+        }
+        record TickResult(String tableId, List<cn.pianzi.liarbar.paper.presentation.UserFacingEvent> events, Throwable error) {}
+        List<java.util.concurrent.CompletableFuture<TickResult>> futures = new ArrayList<>(ids.size());
+        for (String tableId : ids) {
+            futures.add(
+                    tableService.tick(tableId)
+                            .thenApply(events -> new TickResult(tableId, events, null))
+                            .exceptionally(ex -> new TickResult(tableId, List.of(), ex))
+                            .toCompletableFuture()
+            );
+        }
+        java.util.concurrent.CompletableFuture.allOf(futures.toArray(java.util.concurrent.CompletableFuture[]::new))
+                .thenRun(() -> getServer().getScheduler().runTask(this, () -> {
+                    for (var future : futures) {
+                        TickResult result = future.join();
+                        if (result.error() != null) {
+                            getLogger().log(java.util.logging.Level.WARNING, "Table tick failed: " + result.tableId(), result.error());
+                            continue;
+                        }
+                        if (!result.events().isEmpty()) {
+                            statsService.handleEvents(result.events());
+                            rewardService.handleEvents(result.events());
+                            viewBridge.publishAll(result.events());
+                        }
                     }
-                    statsService.handleEvents(events);
-                    rewardService.handleEvents(events);
-                    viewBridge.publishAll(events);
-                })
+                }));
+    }
+
+    private LiarBarCommandExecutor.CreateTableResult createConfiguredTableAtPlayer(Player player, String requestedId) {
+        String tableId = (requestedId == null || requestedId.isBlank())
+                ? toTableId(player)
+                : requestedId;
+        boolean created = tableService.createTableIfAbsent(
+                tableId,
+                tableConfig,
+                economyPort,
+                randomSource
         );
+        return new LiarBarCommandExecutor.CreateTableResult(tableId, created);
+    }
+
+    private boolean deleteTable(String tableId) {
+        return tableService.removeTable(tableId);
+    }
+
+    private List<String> tableIds() {
+        List<String> ids = new ArrayList<>(tableService.tableIds());
+        ids.sort(String::compareToIgnoreCase);
+        return ids;
+    }
+
+    private String toTableId(Player player) {
+        String world = player.getWorld().getName().replaceAll("[^A-Za-z0-9_\\-]", "_");
+        int x = player.getLocation().getBlockX();
+        int y = player.getLocation().getBlockY();
+        int z = player.getLocation().getBlockZ();
+        return "table_" + world + "_" + x + "_" + y + "_" + z;
     }
 
     private StatsRepository createStatsRepository(DatabaseConfig dbConfig) {
         return switch (dbConfig.type()) {
             case MARIADB -> {
-                getLogger().info("使用 MariaDB 统计后端: " + dbConfig.host() + ":" + dbConfig.port() + "/" + dbConfig.database());
+                getLogger().info("Using MariaDB stats backend: "
+                        + dbConfig.host() + ":" + dbConfig.port() + "/" + dbConfig.database());
                 yield new MariaDbStatsRepository(
                         dbConfig.host(), dbConfig.port(), dbConfig.database(),
                         dbConfig.username(), dbConfig.password(), dbConfig.maxPoolSize()
                 );
             }
             case H2 -> {
-                getLogger().info("使用 H2 内嵌统计后端。");
+                getLogger().info("Using embedded H2 stats backend.");
                 yield new H2StatsRepository(getDataFolder().toPath());
             }
         };
     }
-
-    private String rootMessage(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        String message = current.getMessage();
-        return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
-    }
 }
+
