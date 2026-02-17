@@ -73,6 +73,7 @@ public final class TableLobbyHologramManager {
             switch (eventType) {
                 case "MODE_SELECTED" -> {
                     state.selectedMode = asMode(event.data().get("mode"));
+                    state.wagerPerPlayer = asInt(event.data().get("wagerPerPlayer"), 1);
                     state.phase = GamePhase.JOINING;
                     dirtyTables.add(tableId);
                 }
@@ -98,6 +99,7 @@ public final class TableLobbyHologramManager {
                         if (phase == GamePhase.MODE_SELECTION) {
                             state.joinedCount = 0;
                             state.selectedMode = null;
+                            state.wagerPerPlayer = 1;
                         }
                         dirtyTables.add(tableId);
                     }
@@ -217,10 +219,17 @@ public final class TableLobbyHologramManager {
                 ? parse(i18n.t("ui.hologram.joining.need_more", Map.of("count", needMore)))
                 : parse(i18n.t("ui.hologram.joining.ready"));
 
+        String modeKey = state.selectedMode == TableMode.KUNKUN_COIN
+                ? i18n.t("ui.hologram.joining.mode_with_wager", Map.of(
+                "mode", MiniMessageSupport.escape(modeText),
+                "wager", state.wagerPerPlayer
+        ))
+                : i18n.t("ui.hologram.joining.mode", Map.of("mode", MiniMessageSupport.escape(modeText)));
+
         return joinLines(
                 parse(i18n.t("ui.hologram.joining.title", Map.of("joined", state.joinedCount))),
                 countLine,
-                parse(i18n.t("ui.hologram.joining.mode", Map.of("mode", MiniMessageSupport.escape(modeText)))),
+                parse(modeKey),
                 parse(i18n.t("ui.hologram.joining.join_hint", Map.of("table", escapedTable)))
         );
     }
@@ -247,7 +256,7 @@ public final class TableLobbyHologramManager {
         return switch (mode) {
             case LIFE_ONLY -> i18n.t("ui.hologram.mode.life");
             case FANTUAN_COIN -> i18n.t("ui.hologram.mode.fantuan");
-            case KUNKUN_COIN -> i18n.t("ui.hologram.mode.kunkun");
+            case KUNKUN_COIN -> i18n.t("ui.hologram.mode.money");
         };
     }
 
@@ -310,6 +319,7 @@ public final class TableLobbyHologramManager {
 
     private static final class LobbyState {
         private int joinedCount;
+        private int wagerPerPlayer;
         private GamePhase phase;
         private TableMode selectedMode;
 
@@ -317,6 +327,7 @@ public final class TableLobbyHologramManager {
             LobbyState state = new LobbyState();
             state.phase = GamePhase.MODE_SELECTION;
             state.joinedCount = 0;
+            state.wagerPerPlayer = 1;
             state.selectedMode = null;
             return state;
         }
@@ -324,6 +335,7 @@ public final class TableLobbyHologramManager {
         private void resetToIdle() {
             phase = GamePhase.MODE_SELECTION;
             joinedCount = 0;
+            wagerPerPlayer = 1;
             selectedMode = null;
         }
     }

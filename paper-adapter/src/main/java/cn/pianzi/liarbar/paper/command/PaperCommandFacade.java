@@ -22,6 +22,10 @@ public final class PaperCommandFacade {
         return run("command.result.mode_updated", () -> service.selectMode(tableId, playerId, mode));
     }
 
+    public CompletionStage<CommandOutcome> selectMode(String tableId, UUID playerId, TableMode mode, int wager) {
+        return run("command.result.mode_updated", () -> service.selectMode(tableId, playerId, mode, wager));
+    }
+
     public CompletionStage<CommandOutcome> join(String tableId, UUID playerId) {
         return run("command.result.joined", () -> service.join(tableId, playerId));
     }

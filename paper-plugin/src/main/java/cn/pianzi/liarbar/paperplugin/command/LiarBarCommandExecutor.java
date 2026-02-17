@@ -8,7 +8,7 @@ import cn.pianzi.liarbar.paper.command.CommandOutcome;
 import cn.pianzi.liarbar.paper.command.PaperCommandFacade;
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
 import cn.pianzi.liarbar.paperplugin.config.PluginSettings;
-import cn.pianzi.liarbar.paperplugin.game.ModeSelectionAnvilGui;
+import cn.pianzi.liarbar.paperplugin.game.ModeSelectionDialogGui;
 import cn.pianzi.liarbar.paperplugin.i18n.I18n;
 import cn.pianzi.liarbar.paperplugin.presentation.MiniMessageSupport;
 import cn.pianzi.liarbar.paperplugin.stats.LiarBarStatsService;
@@ -43,12 +43,12 @@ import java.util.function.Supplier;
 
 public final class LiarBarCommandExecutor implements TabExecutor {
     private static final List<String> SUBCOMMANDS = List.of("mode", "join", "play", "challenge", "leave", "stop", "status", "create", "delete", "tables", "stats", "top", "season", "reload", "help");
-    private static final List<String> MODES = List.of("life", "fantuan", "kunkun");
+    private static final List<String> MODES = List.of("life", "fantuan", "money");
 
     private final JavaPlugin plugin;
     private final PaperCommandFacade commandFacade;
     private final Consumer<List<UserFacingEvent>> eventSink;
-    private final ModeSelectionAnvilGui modeSelectionGui;
+    private final ModeSelectionDialogGui modeSelectionGui;
     private final LiarBarStatsService statsService;
     private final I18n i18n;
     private final Supplier<List<String>> tableIdsSupplier;
@@ -59,7 +59,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
             JavaPlugin plugin,
             PaperCommandFacade commandFacade,
             Consumer<List<UserFacingEvent>> eventSink,
-            ModeSelectionAnvilGui modeSelectionGui,
+            ModeSelectionDialogGui modeSelectionGui,
             LiarBarStatsService statsService,
             I18n i18n,
             Supplier<List<String>> tableIdsSupplier,
@@ -132,7 +132,17 @@ public final class LiarBarCommandExecutor implements TabExecutor {
             return true;
         }
 
-        dispatchOutcome(sender, commandFacade.selectMode(tableId, player.getUniqueId(), mode));
+        int wager = 1;
+        if (mode == TableMode.KUNKUN_COIN && args.length >= 4) {
+            try {
+                wager = Integer.parseInt(args[3]);
+            } catch (NumberFormatException ex) {
+                send(sender, MiniMessageSupport.prefixed(i18n.t("command.mode.invalid_wager", Map.of("wager", args[3]))));
+                return true;
+            }
+        }
+
+        dispatchOutcome(sender, commandFacade.selectMode(tableId, player.getUniqueId(), mode, wager));
         return true;
     }
 
@@ -690,7 +700,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         return switch (rawMode.toLowerCase(Locale.ROOT)) {
             case "life" -> TableMode.LIFE_ONLY;
             case "fantuan" -> TableMode.FANTUAN_COIN;
-            case "kunkun" -> TableMode.KUNKUN_COIN;
+            case "money", "kunkun" -> TableMode.KUNKUN_COIN;
             default -> throw new IllegalArgumentException(i18n.t("command.mode.invalid", Map.of("mode", rawMode)));
         };
     }
@@ -742,6 +752,9 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         }
         if (args.length == 3 && equalsIgnoreCase(args[0], "mode")) {
             return filterByPrefix(MODES, args[2]);
+        }
+        if (args.length == 4 && equalsIgnoreCase(args[0], "mode") && equalsIgnoreCase(args[2], "money")) {
+            return filterByPrefix(List.of("10", "50", "100", "500", "1000"), args[3]);
         }
         if (args.length >= 3 && equalsIgnoreCase(args[0], "play")) {
             return filterByPrefix(List.of("1", "2", "3", "4", "5"), args[args.length - 1]);
@@ -845,6 +858,9 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         }
         if ("only_host_can_select_mode".equals(reason)) {
             return i18n.t("command.mode.host_only");
+        }
+        if ("invalid_wager_amount".equals(reason)) {
+            return i18n.t("command.mode.invalid_wager_range");
         }
         String prefix = "table not found: ";
         if (reason.startsWith(prefix)) {

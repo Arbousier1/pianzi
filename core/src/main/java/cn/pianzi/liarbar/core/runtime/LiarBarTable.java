@@ -27,6 +27,8 @@ import java.util.UUID;
 
 public final class LiarBarTable {
     private static final List<CardRank> MAIN_RANKS = List.of(CardRank.A, CardRank.Q, CardRank.K);
+    private static final int MIN_WAGER = 1;
+    private static final int MAX_WAGER = 1_000_000;
 
     private final String tableId;
     private final TableConfig config;
@@ -48,6 +50,7 @@ public final class LiarBarTable {
     private int round;
     private long nextCardId;
     private boolean forceChallenge;
+    private int wagerPerPlayer;
 
     private CardRank mainRank;
     private UUID ownerId;
@@ -77,6 +80,7 @@ public final class LiarBarTable {
         this.round = 0;
         this.nextCardId = 1;
         this.forceChallenge = false;
+        this.wagerPerPlayer = 1;
         this.mainRank = null;
         this.ownerId = null;
         this.currentPlayerId = null;
@@ -85,6 +89,10 @@ public final class LiarBarTable {
     }
 
     public List<CoreEvent> selectMode(UUID actor, TableMode selectedMode) {
+        return selectMode(actor, selectedMode, 1);
+    }
+
+    public List<CoreEvent> selectMode(UUID actor, TableMode selectedMode, int wager) {
         Objects.requireNonNull(actor, "actor");
         Objects.requireNonNull(selectedMode, "selectedMode");
         ensurePhase(GamePhase.MODE_SELECTION, "select mode");
@@ -93,6 +101,7 @@ public final class LiarBarTable {
         }
 
         List<CoreEvent> events = new ArrayList<>();
+        int chargeAmount = resolveWagerAmount(selectedMode, wager);
 
         if (selectedMode.isWagerMode()) {
             // Players can now sit before mode selection; charge everyone once mode is locked.
@@ -102,9 +111,9 @@ public final class LiarBarTable {
                 if (!state.alive) {
                     continue;
                 }
-                if (!economy.charge(state.id, selectedMode, 1)) {
+                if (!economy.charge(state.id, selectedMode, chargeAmount)) {
                     for (UUID paid : charged) {
-                        economy.reward(paid, selectedMode, 1);
+                        economy.reward(paid, selectedMode, chargeAmount);
                     }
                     throw new IllegalStateException("insufficient_balance");
                 }
@@ -113,10 +122,15 @@ public final class LiarBarTable {
         }
 
         this.mode = selectedMode;
+        this.wagerPerPlayer = chargeAmount;
         events.add(CoreEvent.of(
                 CoreEventType.MODE_SELECTED,
                 "mode selected",
-                Map.of("actor", actor, "mode", selectedMode.name())
+                Map.of(
+                        "actor", actor,
+                        "mode", selectedMode.name(),
+                        "wagerPerPlayer", chargeAmount
+                )
         ));
         setPhase(GamePhase.JOINING, events, "mode_selected");
         if (alivePlayersCount() >= config.maxPlayers()) {
@@ -140,7 +154,7 @@ public final class LiarBarTable {
             throw new IllegalStateException("table is full");
         }
 
-        if (mode.isWagerMode() && !economy.charge(playerId, mode, 1)) {
+        if (mode.isWagerMode() && !economy.charge(playerId, mode, wagerPerPlayer)) {
             throw new IllegalStateException("insufficient_balance");
         }
 
@@ -674,7 +688,7 @@ public final class LiarBarTable {
             return;
         }
         if (winner != null) {
-            economy.reward(winner, mode, joinedCount);
+            economy.reward(winner, mode, joinedCount * wagerPerPlayer);
         }
         currentPlayerId = null;
         forceChallenge = false;
@@ -756,6 +770,7 @@ public final class LiarBarTable {
         round = 0;
         nextCardId = 1;
         forceChallenge = false;
+        wagerPerPlayer = 1;
 
         mainRank = null;
         ownerId = null;
@@ -1005,6 +1020,16 @@ public final class LiarBarTable {
         }
         int idx = random.nextIntInclusive(0, candidates.size() - 1);
         return candidates.get(idx);
+    }
+
+    private int resolveWagerAmount(TableMode selectedMode, int wager) {
+        if (selectedMode != TableMode.KUNKUN_COIN) {
+            return 1;
+        }
+        if (wager < MIN_WAGER || wager > MAX_WAGER) {
+            throw new IllegalStateException("invalid_wager_amount");
+        }
+        return wager;
     }
 
     private List<Integer> normalizeSlots(List<Integer> slots, int handSize) {

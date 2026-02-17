@@ -26,7 +26,7 @@ database:
 
 economy:
   fantuan-entry-fee: 1.0
-  kunkun-entry-fee: 1.0
+  money-unit-price: 1.0
 
 i18n:
   locale: zh-CN

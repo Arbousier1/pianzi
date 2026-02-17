@@ -16,7 +16,7 @@ import cn.pianzi.liarbar.paperplugin.game.ClickableCardPresenter;
 import cn.pianzi.liarbar.paperplugin.game.DatapackParityRewardService;
 import cn.pianzi.liarbar.paperplugin.game.GameEffectsManager;
 import cn.pianzi.liarbar.paperplugin.game.GameBossBarManager;
-import cn.pianzi.liarbar.paperplugin.game.ModeSelectionAnvilGui;
+import cn.pianzi.liarbar.paperplugin.game.ModeSelectionDialogGui;
 import cn.pianzi.liarbar.paperplugin.game.TableLobbyHologramManager;
 import cn.pianzi.liarbar.paperplugin.game.TablePlayerConnectionListener;
 import cn.pianzi.liarbar.paperplugin.game.TableSeatManager;
@@ -64,7 +64,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
     private GameEffectsManager effectsManager;
     private TableLobbyHologramManager lobbyHologramManager;
     private PacketEventsActionBarPublisher actionBarPublisher;
-    private ModeSelectionAnvilGui modeSelectionGui;
+    private ModeSelectionDialogGui modeSelectionGui;
     private StatsRepository statsRepository;
     private BukkitTask tickTask;
 
@@ -94,7 +94,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         economyPort = new VaultEconomyAdapter(
                 vaultGateway,
                 settings.fantuanEntryFee(),
-                settings.kunkunEntryFee()
+                settings.moneyUnitPrice()
         );
         randomSource = RandomSource.threadLocal();
 
@@ -114,7 +114,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         actionBarPublisher = new PacketEventsActionBarPublisher(this, i18n, packetEventsLifecycle.isReady());
         viewBridge = new PacketEventsViewBridge(actionBarPublisher);
         rewardService = new DatapackParityRewardService(this, i18n);
-        modeSelectionGui = new ModeSelectionAnvilGui(this, commandFacade, this::applyEvents, i18n);
+        modeSelectionGui = new ModeSelectionDialogGui(this, commandFacade, this::applyEvents, i18n);
 
         if (!registerCommands()) {
             getLogger().severe("Failed to register /liarbar command. Disabling plugin.");
@@ -130,8 +130,6 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                 ),
                 this
         );
-        getServer().getPluginManager().registerEvents(modeSelectionGui, this);
-
         restoreSavedTables();
         startTickLoop();
     }

@@ -13,7 +13,7 @@ public record PluginSettings(
         String tableId,
         int tickIntervalTicks,
         double fantuanEntryFee,
-        double kunkunEntryFee,
+        double moneyUnitPrice,
         String localeTag,
         ZoneId zoneId,
         ScoreRule scoreRule,
@@ -23,7 +23,10 @@ public record PluginSettings(
         String tableId = nonBlank(config.getString("table.id"), "default");
         int tickIntervalTicks = Math.max(1, config.getInt("table.tick-interval-ticks", 20));
         double fantuanEntryFee = Math.max(0.0D, config.getDouble("economy.fantuan-entry-fee", 1.0D));
-        double kunkunEntryFee = Math.max(0.0D, config.getDouble("economy.kunkun-entry-fee", 1.0D));
+        double moneyUnitPrice = Math.max(0.0D, config.getDouble(
+                "economy.money-unit-price",
+                config.getDouble("economy.kunkun-entry-fee", 1.0D)
+        ));
         String localeTag = nonBlank(config.getString("i18n.locale"), "zh-CN");
         ZoneId zoneId = parseZoneId(config.getString("i18n.timezone"));
         int initialScore = config.getInt("score.initial", 200);
@@ -50,7 +53,7 @@ public record PluginSettings(
                 tableId,
                 tickIntervalTicks,
                 fantuanEntryFee,
-                kunkunEntryFee,
+                moneyUnitPrice,
                 localeTag,
                 zoneId,
                 scoreRule,

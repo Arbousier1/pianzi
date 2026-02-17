@@ -30,6 +30,10 @@ public final class AsyncTableRuntime implements AutoCloseable {
         return CompletableFuture.supplyAsync(() -> table.selectMode(actor, mode), mailbox);
     }
 
+    public CompletionStage<List<CoreEvent>> selectMode(UUID actor, TableMode mode, int wager) {
+        return CompletableFuture.supplyAsync(() -> table.selectMode(actor, mode, wager), mailbox);
+    }
+
     public CompletionStage<List<CoreEvent>> join(UUID playerId) {
         return CompletableFuture.supplyAsync(() -> table.join(playerId), mailbox);
     }

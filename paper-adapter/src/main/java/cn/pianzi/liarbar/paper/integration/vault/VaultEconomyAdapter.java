@@ -9,12 +9,12 @@ import java.util.UUID;
 public final class VaultEconomyAdapter implements EconomyPort {
     private final VaultGateway vaultGateway;
     private final double fantuanPrice;
-    private final double kunkunPrice;
+    private final double moneyUnitPrice;
 
-    public VaultEconomyAdapter(VaultGateway vaultGateway, double fantuanPrice, double kunkunPrice) {
+    public VaultEconomyAdapter(VaultGateway vaultGateway, double fantuanPrice, double moneyUnitPrice) {
         this.vaultGateway = Objects.requireNonNull(vaultGateway, "vaultGateway");
         this.fantuanPrice = fantuanPrice;
-        this.kunkunPrice = kunkunPrice;
+        this.moneyUnitPrice = moneyUnitPrice;
     }
 
     @Override
@@ -34,6 +34,6 @@ public final class VaultEconomyAdapter implements EconomyPort {
     }
 
     private double unitPrice(TableMode mode) {
-        return mode == TableMode.FANTUAN_COIN ? fantuanPrice : kunkunPrice;
+        return mode == TableMode.FANTUAN_COIN ? fantuanPrice : moneyUnitPrice;
     }
 }

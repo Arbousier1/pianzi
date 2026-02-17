@@ -59,6 +59,10 @@ public final class TableApplicationService implements AutoCloseable {
         return execute(tableId, runtime -> runtime.selectMode(actor, mode));
     }
 
+    public CompletionStage<List<UserFacingEvent>> selectMode(String tableId, UUID actor, TableMode mode, int wager) {
+        return execute(tableId, runtime -> runtime.selectMode(actor, mode, wager));
+    }
+
     public CompletionStage<List<UserFacingEvent>> join(String tableId, UUID playerId) {
         return execute(tableId, runtime -> runtime.join(playerId));
     }

@@ -194,7 +194,7 @@ public final class CoreEventTranslator {
         return switch (mode) {
             case "LIFE_ONLY" -> "life";
             case "FANTUAN_COIN" -> "fantuan";
-            case "KUNKUN_COIN" -> "kunkun";
+            case "KUNKUN_COIN" -> "money";
             default -> mode;
         };
     }
