@@ -31,5 +31,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: liar-bar-paper-plugin
-          path: paper-plugin/build/libs/paper-plugin-*.jar
+          path: paper-plugin/build/libs/liar-bar-paper-plugin-*.jar
           if-no-files-found: error

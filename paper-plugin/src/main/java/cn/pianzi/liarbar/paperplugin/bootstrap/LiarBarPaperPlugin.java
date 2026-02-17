@@ -23,9 +23,13 @@ import cn.pianzi.liarbar.paperplugin.stats.H2StatsRepository;
 import cn.pianzi.liarbar.paperplugin.stats.LiarBarStatsService;
 import cn.pianzi.liarbar.paperplugin.stats.MariaDbStatsRepository;
 import cn.pianzi.liarbar.paperplugin.stats.StatsRepository;
-import org.bukkit.command.PluginCommand;
+import io.papermc.paper.command.brigadier.BasicCommand;
+import io.papermc.paper.command.brigadier.CommandSourceStack;
+import org.bukkit.command.CommandSender;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
+
+import java.util.Collection;
 
 public final class LiarBarPaperPlugin extends JavaPlugin {
     private PacketEventsLifecycle packetEventsLifecycle;
@@ -122,11 +126,6 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
     }
 
     private boolean registerCommands() {
-        PluginCommand liarbar = getCommand("liarbar");
-        if (liarbar == null) {
-            return false;
-        }
-
         LiarBarCommandExecutor executor = new LiarBarCommandExecutor(
                 this,
                 commandFacade,
@@ -136,9 +135,31 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                 i18n,
                 settings.tableId()
         );
-        liarbar.setExecutor(executor);
-        liarbar.setTabCompleter(executor);
-        return true;
+
+        BasicCommand command = new BasicCommand() {
+            @Override
+            public void execute(CommandSourceStack commandSourceStack, String[] args) {
+                executor.onCommand(commandSourceStack.getSender(), null, "liarbar", args);
+            }
+
+            @Override
+            public Collection<String> suggest(CommandSourceStack commandSourceStack, String[] args) {
+                return executor.onTabComplete(commandSourceStack.getSender(), null, "liarbar", args);
+            }
+
+            @Override
+            public boolean canUse(CommandSender sender) {
+                return true;
+            }
+        };
+
+        try {
+            registerCommand("liarbar", command);
+            return true;
+        } catch (RuntimeException ex) {
+            getLogger().log(java.util.logging.Level.SEVERE, "注册 /liarbar 命令失败", ex);
+            return false;
+        }
     }
 
     private void startTickLoop() {

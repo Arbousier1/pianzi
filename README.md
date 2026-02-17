@@ -15,17 +15,15 @@ This repository contains a modular Minecraft Paper plugin implementation for the
 Requirements:
 
 - JDK `25`
-- Maven `3.9+`
 
 Command:
 
 ```bash
-mvn clean verify
+./gradlew build
 ```
 
 ## Output Artifact
 
 After a successful build, the Paper plugin jar is generated at:
 
-`paper-plugin/target/liar-bar-paper-plugin-1.0.0-SNAPSHOT.jar`
-
+`paper-plugin/build/libs/liar-bar-paper-plugin-1.0.0-SNAPSHOT.jar`

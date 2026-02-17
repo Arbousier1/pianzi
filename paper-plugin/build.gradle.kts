@@ -3,6 +3,10 @@ plugins {
     id("com.gradleup.shadow") version "9.3.1"
 }
 
+base {
+    archivesName = "liar-bar-paper-plugin"
+}
+
 dependencies {
     paperweight.paperDevBundle(rootProject.property("paperVersion") as String)
 
@@ -21,7 +25,13 @@ paperweight.reobfArtifactConfiguration =
     io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION
 
 tasks {
+    jar {
+        archiveBaseName.set("liar-bar-paper-plugin")
+    }
+
     shadowJar {
+        archiveBaseName.set("liar-bar-paper-plugin")
+
         // Shade internal modules + runtime libs into the final JAR
         dependencies {
             include(project(":core"))
