@@ -28,7 +28,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class LiarBarStatsService implements AutoCloseable {
-    private static final String EVENT_TYPE_KEY = "_eventType";
     private static final long SAVE_DEBOUNCE_MILLIS = 500L;
     private static final int HARD_SCORE_FLOOR = 50;
 
@@ -41,8 +40,9 @@ public final class LiarBarStatsService implements AutoCloseable {
     private final Object lock = new Object();
     private final Object persistenceLock = new Object();
     private final Map<UUID, PlayerStats> statsByPlayer = new HashMap<>();
-    private final Set<UUID> participants = new HashSet<>();
-    private final Set<UUID> eliminatedPlayers = new HashSet<>();
+    // Per-table tracking to avoid cross-table contamination in multi-table scenarios
+    private final Map<String, Set<UUID>> participantsByTable = new HashMap<>();
+    private final Map<String, Set<UUID>> eliminatedByTable = new HashMap<>();
 
     private final AtomicBoolean dirty = new AtomicBoolean(false);
     private final AtomicBoolean saveScheduled = new AtomicBoolean(false);
@@ -234,7 +234,7 @@ public final class LiarBarStatsService implements AutoCloseable {
     }
 
     private boolean applyEvent(UserFacingEvent event) {
-        String type = asString(event.data().get(EVENT_TYPE_KEY));
+        String type = event.eventType();
         if (type == null) {
             return false;
         }
@@ -253,10 +253,12 @@ public final class LiarBarStatsService implements AutoCloseable {
     private boolean onPlayerJoined(UserFacingEvent event) {
         ScoreRule rule = scoreRule;
         UUID playerId = asUuid(event.data().get("playerId"));
-        if (playerId == null) {
+        String tableId = asString(event.data().get("tableId"));
+        if (playerId == null || tableId == null) {
             return false;
         }
-        if (!participants.add(playerId)) {
+        Set<UUID> tableParticipants = participantsByTable.computeIfAbsent(tableId, k -> new HashSet<>());
+        if (!tableParticipants.add(playerId)) {
             return false;
         }
         PlayerStats stats = mutableStatsOf(playerId, rule);
@@ -267,12 +269,14 @@ public final class LiarBarStatsService implements AutoCloseable {
 
     private boolean onPlayerForfeited(UserFacingEvent event) {
         UUID playerId = asUuid(event.data().get("playerId"));
-        if (playerId == null) {
+        String tableId = asString(event.data().get("tableId"));
+        if (playerId == null || tableId == null) {
             return false;
         }
         Boolean beforeStart = asBoolean(event.data().get("beforeStart"));
         if (Boolean.TRUE.equals(beforeStart)) {
-            return participants.remove(playerId);
+            Set<UUID> tableParticipants = participantsByTable.get(tableId);
+            return tableParticipants != null && tableParticipants.remove(playerId);
         }
         return false;
     }
@@ -296,10 +300,12 @@ public final class LiarBarStatsService implements AutoCloseable {
     private boolean onPlayerEliminated(UserFacingEvent event) {
         ScoreRule rule = scoreRule;
         UUID playerId = asUuid(event.data().get("playerId"));
-        if (playerId == null) {
+        String tableId = asString(event.data().get("tableId"));
+        if (playerId == null || tableId == null) {
             return false;
         }
-        if (!eliminatedPlayers.add(playerId)) {
+        Set<UUID> tableEliminated = eliminatedByTable.computeIfAbsent(tableId, k -> new HashSet<>());
+        if (!tableEliminated.add(playerId)) {
             return false;
         }
         PlayerStats stats = mutableStatsOf(playerId, rule);
@@ -310,17 +316,22 @@ public final class LiarBarStatsService implements AutoCloseable {
 
     private boolean onGameFinished(UserFacingEvent event) {
         ScoreRule rule = scoreRule;
-        if (participants.isEmpty()) {
+        String tableId = asString(event.data().get("tableId"));
+        if (tableId == null) {
+            return false;
+        }
+        Set<UUID> tableParticipants = participantsByTable.get(tableId);
+        if (tableParticipants == null || tableParticipants.isEmpty()) {
             return false;
         }
         UUID winner = asUuid(event.data().get("winner"));
         if (winner == null) {
-            participants.clear();
-            eliminatedPlayers.clear();
+            participantsByTable.remove(tableId);
+            eliminatedByTable.remove(tableId);
             return false;
         }
 
-        List<UUID> participantList = new ArrayList<>(participants);
+        List<UUID> participantList = new ArrayList<>(tableParticipants);
         for (UUID participant : participantList) {
             PlayerStats stats = mutableStatsOf(participant, rule);
             if (rule.entryCost() != 0) {
@@ -334,8 +345,8 @@ public final class LiarBarStatsService implements AutoCloseable {
             enforceScoreFloor(stats);
         }
 
-        participants.clear();
-        eliminatedPlayers.clear();
+        participantsByTable.remove(tableId);
+        eliminatedByTable.remove(tableId);
         return true;
     }
 
@@ -344,12 +355,13 @@ public final class LiarBarStatsService implements AutoCloseable {
         if (!"MODE_SELECTION".equals(phase)) {
             return false;
         }
-        if (participants.isEmpty() && eliminatedPlayers.isEmpty()) {
+        String tableId = asString(event.data().get("tableId"));
+        if (tableId == null) {
             return false;
         }
-        participants.clear();
-        eliminatedPlayers.clear();
-        return true;
+        boolean hadData = participantsByTable.remove(tableId) != null;
+        hadData |= eliminatedByTable.remove(tableId) != null;
+        return hadData;
     }
 
     private PlayerStats mutableStatsOf(UUID playerId, ScoreRule rule) {
@@ -388,6 +400,7 @@ public final class LiarBarStatsService implements AutoCloseable {
                 saveNow();
             }
         } catch (Exception ex) {
+            dirty.set(true); // re-mark so finally block will schedule a retry
             plugin.getLogger().warning("保存统计数据失败: " + rootMessage(ex));
         } finally {
             saveScheduled.set(false);
@@ -456,8 +469,8 @@ public final class LiarBarStatsService implements AutoCloseable {
                     snapshots.put(entry.getKey(), entry.getValue().snapshot());
                 }
                 statsByPlayer.clear();
-                participants.clear();
-                eliminatedPlayers.clear();
+                participantsByTable.clear();
+                eliminatedByTable.clear();
                 dirty.set(false);
                 saveScheduled.set(false);
             }

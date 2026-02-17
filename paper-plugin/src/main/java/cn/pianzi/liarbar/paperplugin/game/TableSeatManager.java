@@ -22,7 +22,6 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class TableSeatManager {
 
-    private static final String EVENT_TYPE_KEY = "_eventType";
 
     /** Seat offsets from table center: seat 0=west, 1=south, 2=east, 3=north */
     private static final int[][] SEAT_OFFSETS = {
@@ -56,7 +55,7 @@ public final class TableSeatManager {
      */
     public void handleEvents(List<UserFacingEvent> events) {
         for (UserFacingEvent event : events) {
-            String eventType = String.valueOf(event.data().get(EVENT_TYPE_KEY));
+            String eventType = event.eventType();
             switch (eventType) {
                 case "PLAYER_JOINED" -> handlePlayerJoined(event);
                 case "GAME_FINISHED" -> handleGameFinished(event);

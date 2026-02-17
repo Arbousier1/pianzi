@@ -19,6 +19,7 @@ public record GameSnapshot(
         Optional<CardRank> mainRank,
         List<Card> centerCards,
         List<PlayerSnapshot> players,
+        Optional<UUID> owner,
         Optional<UUID> currentPlayer,
         Optional<UUID> lastPlayer,
         boolean forceChallenge

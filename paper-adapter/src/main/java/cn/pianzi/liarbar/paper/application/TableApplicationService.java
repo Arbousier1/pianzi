@@ -10,6 +10,7 @@ import cn.pianzi.liarbar.core.snapshot.GameSnapshot;
 import cn.pianzi.liarbar.paper.presentation.CoreEventTranslator;
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -102,9 +103,14 @@ public final class TableApplicationService implements AutoCloseable {
     }
 
     private List<UserFacingEvent> injectTableId(List<UserFacingEvent> events, String tableId) {
-        return events.stream()
-                .map(e -> e.withTableId(tableId))
-                .toList();
+        if (events.isEmpty()) {
+            return List.of();
+        }
+        List<UserFacingEvent> result = new ArrayList<>(events.size());
+        for (UserFacingEvent e : events) {
+            result.add(e.withTableId(tableId));
+        }
+        return result;
     }
 
     @Override

@@ -1,4 +1,4 @@
-package cn.pianzi.liarbar.paperplugin.stats;
+    package cn.pianzi.liarbar.paperplugin.stats;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -128,8 +128,9 @@ public final class MariaDbStatsRepository implements StatsRepository {
     @Override
     public void upsertAll(Map<UUID, PlayerStatsSnapshot> snapshots) throws SQLException {
         if (snapshots.isEmpty()) return;
-        try (Connection conn = connection();
-             PreparedStatement stmt = conn.prepareStatement("""
+        try (Connection conn = connection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement stmt = conn.prepareStatement("""
                      INSERT INTO liarbar_stats (
                          player_id, score, games_played, wins, losses,
                          eliminated_count, survived_shots, current_win_streak,
@@ -146,23 +147,27 @@ public final class MariaDbStatsRepository implements StatsRepository {
                          best_win_streak = VALUES(best_win_streak),
                          updated_at = VALUES(updated_at)
                      """)) {
-            conn.setAutoCommit(false);
-            for (PlayerStatsSnapshot s : snapshots.values()) {
-                stmt.setString(1, s.playerId().toString());
-                stmt.setInt(2, s.score());
-                stmt.setInt(3, s.gamesPlayed());
-                stmt.setInt(4, s.wins());
-                stmt.setInt(5, s.losses());
-                stmt.setInt(6, s.eliminatedCount());
-                stmt.setInt(7, s.survivedShots());
-                stmt.setInt(8, s.currentWinStreak());
-                stmt.setInt(9, s.bestWinStreak());
-                stmt.setLong(10, s.updatedAtEpochSecond());
-                stmt.addBatch();
+                for (PlayerStatsSnapshot s : snapshots.values()) {
+                    stmt.setString(1, s.playerId().toString());
+                    stmt.setInt(2, s.score());
+                    stmt.setInt(3, s.gamesPlayed());
+                    stmt.setInt(4, s.wins());
+                    stmt.setInt(5, s.losses());
+                    stmt.setInt(6, s.eliminatedCount());
+                    stmt.setInt(7, s.survivedShots());
+                    stmt.setInt(8, s.currentWinStreak());
+                    stmt.setInt(9, s.bestWinStreak());
+                    stmt.setLong(10, s.updatedAtEpochSecond());
+                    stmt.addBatch();
+                }
+                stmt.executeBatch();
+                conn.commit();
+            } catch (Exception ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(true);
             }
-            stmt.executeBatch();
-            conn.commit();
-            conn.setAutoCommit(true);
         }
     }
 
@@ -299,27 +304,33 @@ public final class MariaDbStatsRepository implements StatsRepository {
     public void saveTables(List<SavedTable> tables) throws SQLException {
         try (Connection conn = connection()) {
             conn.setAutoCommit(false);
-            try (PreparedStatement del = conn.prepareStatement("DELETE FROM liarbar_tables")) {
-                del.executeUpdate();
-            }
-            if (!tables.isEmpty()) {
-                try (PreparedStatement stmt = conn.prepareStatement("""
-                        INSERT INTO liarbar_tables (table_id, world_name, x, y, z)
-                        VALUES (?, ?, ?, ?, ?)
-                        """)) {
-                    for (SavedTable t : tables) {
-                        stmt.setString(1, t.tableId());
-                        stmt.setString(2, t.worldName());
-                        stmt.setInt(3, t.x());
-                        stmt.setInt(4, t.y());
-                        stmt.setInt(5, t.z());
-                        stmt.addBatch();
-                    }
-                    stmt.executeBatch();
+            try {
+                try (PreparedStatement del = conn.prepareStatement("DELETE FROM liarbar_tables")) {
+                    del.executeUpdate();
                 }
+                if (!tables.isEmpty()) {
+                    try (PreparedStatement stmt = conn.prepareStatement("""
+                            INSERT INTO liarbar_tables (table_id, world_name, x, y, z)
+                            VALUES (?, ?, ?, ?, ?)
+                            """)) {
+                        for (SavedTable t : tables) {
+                            stmt.setString(1, t.tableId());
+                            stmt.setString(2, t.worldName());
+                            stmt.setInt(3, t.x());
+                            stmt.setInt(4, t.y());
+                            stmt.setInt(5, t.z());
+                            stmt.addBatch();
+                        }
+                        stmt.executeBatch();
+                    }
+                }
+                conn.commit();
+            } catch (Exception ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(true);
             }
-            conn.commit();
-            conn.setAutoCommit(true);
         }
     }
 

@@ -20,7 +20,6 @@ import java.util.UUID;
  */
 public final class ClickableCardPresenter {
 
-    private static final String EVENT_TYPE_KEY = "_eventType";
     private static final String SEPARATOR = "═══════════════════════════════";
 
     private final I18n i18n;
@@ -31,7 +30,7 @@ public final class ClickableCardPresenter {
 
     public void handleEvents(List<UserFacingEvent> events) {
         for (UserFacingEvent event : events) {
-            String eventType = String.valueOf(event.data().get(EVENT_TYPE_KEY));
+            String eventType = event.eventType();
             switch (eventType) {
                 case "HAND_DEALT" -> onHandDealt(event);
                 case "TURN_CHANGED" -> onTurnChanged(event);

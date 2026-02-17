@@ -157,8 +157,9 @@ public final class H2StatsRepository implements StatsRepository {
 
     @Override
     public void upsertAll(Map<UUID, PlayerStatsSnapshot> snapshots) throws SQLException {
-        try (Connection connection = connection();
-             PreparedStatement statement = connection.prepareStatement("""
+        try (Connection connection = connection()) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement statement = connection.prepareStatement("""
                      MERGE INTO liarbar_stats (
                          player_id,
                          score,
@@ -172,23 +173,27 @@ public final class H2StatsRepository implements StatsRepository {
                          updated_at
                      ) KEY(player_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                      """)) {
-            connection.setAutoCommit(false);
-            for (PlayerStatsSnapshot snapshot : snapshots.values()) {
-                statement.setObject(1, snapshot.playerId());
-                statement.setInt(2, snapshot.score());
-                statement.setInt(3, snapshot.gamesPlayed());
-                statement.setInt(4, snapshot.wins());
-                statement.setInt(5, snapshot.losses());
-                statement.setInt(6, snapshot.eliminatedCount());
-                statement.setInt(7, snapshot.survivedShots());
-                statement.setInt(8, snapshot.currentWinStreak());
-                statement.setInt(9, snapshot.bestWinStreak());
-                statement.setLong(10, snapshot.updatedAtEpochSecond());
-                statement.addBatch();
+                for (PlayerStatsSnapshot snapshot : snapshots.values()) {
+                    statement.setObject(1, snapshot.playerId());
+                    statement.setInt(2, snapshot.score());
+                    statement.setInt(3, snapshot.gamesPlayed());
+                    statement.setInt(4, snapshot.wins());
+                    statement.setInt(5, snapshot.losses());
+                    statement.setInt(6, snapshot.eliminatedCount());
+                    statement.setInt(7, snapshot.survivedShots());
+                    statement.setInt(8, snapshot.currentWinStreak());
+                    statement.setInt(9, snapshot.bestWinStreak());
+                    statement.setLong(10, snapshot.updatedAtEpochSecond());
+                    statement.addBatch();
+                }
+                statement.executeBatch();
+                connection.commit();
+            } catch (Exception ex) {
+                connection.rollback();
+                throw ex;
+            } finally {
+                connection.setAutoCommit(true);
             }
-            statement.executeBatch();
-            connection.commit();
-            connection.setAutoCommit(true);
         }
     }
 
@@ -372,27 +377,33 @@ public final class H2StatsRepository implements StatsRepository {
     public void saveTables(List<SavedTable> tables) throws SQLException {
         try (Connection conn = connection()) {
             conn.setAutoCommit(false);
-            try (PreparedStatement del = conn.prepareStatement("DELETE FROM liarbar_tables")) {
-                del.executeUpdate();
-            }
-            if (!tables.isEmpty()) {
-                try (PreparedStatement stmt = conn.prepareStatement("""
-                        INSERT INTO liarbar_tables (table_id, world_name, x, y, z)
-                        VALUES (?, ?, ?, ?, ?)
-                        """)) {
-                    for (SavedTable t : tables) {
-                        stmt.setString(1, t.tableId());
-                        stmt.setString(2, t.worldName());
-                        stmt.setInt(3, t.x());
-                        stmt.setInt(4, t.y());
-                        stmt.setInt(5, t.z());
-                        stmt.addBatch();
-                    }
-                    stmt.executeBatch();
+            try {
+                try (PreparedStatement del = conn.prepareStatement("DELETE FROM liarbar_tables")) {
+                    del.executeUpdate();
                 }
+                if (!tables.isEmpty()) {
+                    try (PreparedStatement stmt = conn.prepareStatement("""
+                            INSERT INTO liarbar_tables (table_id, world_name, x, y, z)
+                            VALUES (?, ?, ?, ?, ?)
+                            """)) {
+                        for (SavedTable t : tables) {
+                            stmt.setString(1, t.tableId());
+                            stmt.setString(2, t.worldName());
+                            stmt.setInt(3, t.x());
+                            stmt.setInt(4, t.y());
+                            stmt.setInt(5, t.z());
+                            stmt.addBatch();
+                        }
+                        stmt.executeBatch();
+                    }
+                }
+                conn.commit();
+            } catch (Exception ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(true);
             }
-            conn.commit();
-            conn.setAutoCommit(true);
         }
     }
 

@@ -1,13 +1,14 @@
 package cn.pianzi.liarbar.paperplugin.command;
 
 import cn.pianzi.liarbar.core.domain.TableMode;
+import cn.pianzi.liarbar.core.domain.GamePhase;
 import cn.pianzi.liarbar.core.snapshot.GameSnapshot;
 import cn.pianzi.liarbar.core.snapshot.PlayerSnapshot;
 import cn.pianzi.liarbar.paper.command.CommandOutcome;
 import cn.pianzi.liarbar.paper.command.PaperCommandFacade;
-import cn.pianzi.liarbar.paper.presentation.PacketEventsViewBridge;
+import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
 import cn.pianzi.liarbar.paperplugin.config.PluginSettings;
-import cn.pianzi.liarbar.paperplugin.game.DatapackParityRewardService;
+import cn.pianzi.liarbar.paperplugin.game.ModeSelectionAnvilGui;
 import cn.pianzi.liarbar.paperplugin.i18n.I18n;
 import cn.pianzi.liarbar.paperplugin.presentation.MiniMessageSupport;
 import cn.pianzi.liarbar.paperplugin.stats.LiarBarStatsService;
@@ -36,6 +37,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -45,9 +47,9 @@ public final class LiarBarCommandExecutor implements TabExecutor {
 
     private final JavaPlugin plugin;
     private final PaperCommandFacade commandFacade;
-    private final PacketEventsViewBridge viewBridge;
+    private final Consumer<List<UserFacingEvent>> eventSink;
+    private final ModeSelectionAnvilGui modeSelectionGui;
     private final LiarBarStatsService statsService;
-    private final DatapackParityRewardService rewardService;
     private final I18n i18n;
     private final Supplier<List<String>> tableIdsSupplier;
     private final BiFunction<Player, String, CreateTableResult> createTableAction;
@@ -56,9 +58,9 @@ public final class LiarBarCommandExecutor implements TabExecutor {
     public LiarBarCommandExecutor(
             JavaPlugin plugin,
             PaperCommandFacade commandFacade,
-            PacketEventsViewBridge viewBridge,
+            Consumer<List<UserFacingEvent>> eventSink,
+            ModeSelectionAnvilGui modeSelectionGui,
             LiarBarStatsService statsService,
-            DatapackParityRewardService rewardService,
             I18n i18n,
             Supplier<List<String>> tableIdsSupplier,
             BiFunction<Player, String, CreateTableResult> createTableAction,
@@ -66,9 +68,9 @@ public final class LiarBarCommandExecutor implements TabExecutor {
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.commandFacade = Objects.requireNonNull(commandFacade, "commandFacade");
-        this.viewBridge = Objects.requireNonNull(viewBridge, "viewBridge");
+        this.eventSink = Objects.requireNonNull(eventSink, "eventSink");
+        this.modeSelectionGui = Objects.requireNonNull(modeSelectionGui, "modeSelectionGui");
         this.statsService = Objects.requireNonNull(statsService, "statsService");
-        this.rewardService = Objects.requireNonNull(rewardService, "rewardService");
         this.i18n = Objects.requireNonNull(i18n, "i18n");
         this.tableIdsSupplier = Objects.requireNonNull(tableIdsSupplier, "tableIdsSupplier");
         this.createTableAction = Objects.requireNonNull(createTableAction, "createTableAction");
@@ -106,6 +108,11 @@ public final class LiarBarCommandExecutor implements TabExecutor {
     }
 
     private boolean handleMode(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("liarbar.admin")) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.no_permission_admin")));
+            return true;
+        }
+
         Player player = requirePlayer(sender);
         if (player == null) {
             return true;
@@ -150,7 +157,35 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         }
 
         String tableId = args[1];
-        dispatchOutcome(sender, commandFacade.join(tableId, player.getUniqueId()));
+        commandFacade.snapshot(tableId).whenComplete((snapshot, throwable) ->
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (throwable != null) {
+                        send(sender, MiniMessageSupport.prefixed(i18n.t("command.failed", Map.of(
+                                "reason", MiniMessageSupport.escape(localizedReason(throwable))
+                        ))));
+                        return;
+                    }
+
+                    if (snapshot.phase() == GamePhase.MODE_SELECTION
+                            && snapshot.players().stream().anyMatch(p -> p.playerId().equals(player.getUniqueId()))) {
+                        if (snapshot.owner().filter(owner -> owner.equals(player.getUniqueId())).isPresent()) {
+                            send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.reopen_mode_gui")));
+                            modeSelectionGui.open(player, tableId);
+                        } else {
+                            send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.wait_for_host")));
+                        }
+                        return;
+                    }
+
+                    dispatchOutcome(sender, commandFacade.join(tableId, player.getUniqueId()), outcome -> {
+                        if (outcome.success()
+                                && snapshot.phase() == GamePhase.MODE_SELECTION
+                                && snapshot.owner().isEmpty()) {
+                            modeSelectionGui.open(player, tableId);
+                        }
+                    });
+                })
+        );
         return true;
     }
 
@@ -513,6 +548,15 @@ public final class LiarBarCommandExecutor implements TabExecutor {
     }
 
     private void dispatchOutcome(CommandSender sender, CompletionStage<CommandOutcome> future) {
+        dispatchOutcome(sender, future, ignored -> {
+        });
+    }
+
+    private void dispatchOutcome(
+            CommandSender sender,
+            CompletionStage<CommandOutcome> future,
+            Consumer<CommandOutcome> afterSuccess
+    ) {
         future.whenComplete((outcome, throwable) ->
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     if (throwable != null) {
@@ -526,9 +570,8 @@ public final class LiarBarCommandExecutor implements TabExecutor {
                     String message = outcome.success() ? i18n.t(outcome.message()) : outcome.message();
                     send(sender, MiniMessageSupport.prefixed("<" + color + ">" + MiniMessageSupport.escape(message) + "</" + color + ">"));
                     if (outcome.success()) {
-                        statsService.handleEvents(outcome.events());
-                        rewardService.handleEvents(outcome.events());
-                        viewBridge.publishAll(outcome.events());
+                        eventSink.accept(outcome.events());
+                        afterSuccess.accept(outcome);
                     }
                 })
         );
@@ -797,6 +840,12 @@ public final class LiarBarCommandExecutor implements TabExecutor {
 
     private String localizedReason(Throwable throwable) {
         String reason = rootMessage(throwable);
+        if ("insufficient_balance".equals(reason)) {
+            return i18n.t("command.join.insufficient_balance");
+        }
+        if ("only_host_can_select_mode".equals(reason)) {
+            return i18n.t("command.mode.host_only");
+        }
         String prefix = "table not found: ";
         if (reason.startsWith(prefix)) {
             String tableId = reason.substring(prefix.length()).trim();

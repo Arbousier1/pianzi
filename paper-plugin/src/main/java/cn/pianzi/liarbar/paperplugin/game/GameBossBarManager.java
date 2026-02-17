@@ -20,7 +20,6 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class GameBossBarManager {
 
-    private static final String EVENT_TYPE_KEY = "_eventType";
     private static final int MAX_BULLETS = 6;
 
     private final I18n i18n;
@@ -52,7 +51,8 @@ public final class GameBossBarManager {
 
     public void handleEvents(List<UserFacingEvent> events) {
         for (UserFacingEvent event : events) {
-            String eventType = String.valueOf(event.data().get(EVENT_TYPE_KEY));
+            String eventType = event.eventType();
+            if (eventType == null) continue;
             switch (eventType) {
                 case "PLAYER_JOINED" -> onPlayerJoined(event);
                 case "DEAL_COMPLETED" -> onDealCompleted(event);

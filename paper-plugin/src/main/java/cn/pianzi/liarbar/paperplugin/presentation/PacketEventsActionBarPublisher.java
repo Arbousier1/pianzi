@@ -11,8 +11,11 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class PacketEventsActionBarPublisher implements PacketEventsPublisher {
     private static final Map<EventSeverity, String> COLOR_TAGS = Map.of(
@@ -27,6 +30,11 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
     private boolean packetEventsReady;
     private boolean packetEventsFailureLogged;
 
+    /** tableId → set of player UUIDs currently at that table */
+    private final Map<String, Set<UUID>> tablePlayers = new ConcurrentHashMap<>();
+    /** playerId → tableId (reverse index) */
+    private final Map<UUID, String> playerToTable = new ConcurrentHashMap<>();
+
     public PacketEventsActionBarPublisher(JavaPlugin plugin, I18n i18n, boolean packetEventsReady) {
         this.plugin = plugin;
         this.i18n = i18n;
@@ -34,19 +42,107 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
     }
 
     @Override
+    public void publishAll(List<UserFacingEvent> events) {
+        for (UserFacingEvent event : events) {
+            trackMembership(event);
+        }
+        for (UserFacingEvent event : events) {
+            publish(event);
+        }
+    }
+
+    @Override
     public void publish(UserFacingEvent event) {
         UUID target = event.targetPlayer();
-        if (target == null) {
-            for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
-                publishToPlayer(onlinePlayer, event);
+        if (target != null) {
+            Player player = Bukkit.getPlayer(target);
+            if (player != null && player.isOnline()) {
+                publishToPlayer(player, event);
             }
             return;
         }
 
-        Player player = Bukkit.getPlayer(target);
-        if (player != null && player.isOnline()) {
-            publishToPlayer(player, event);
+        // Broadcast: try to narrow to table participants only
+        String tableId = asString(event.data().get("tableId"));
+        if (tableId != null) {
+            Set<UUID> players = tablePlayers.get(tableId);
+            if (players != null && !players.isEmpty()) {
+                for (UUID pid : players) {
+                    Player p = Bukkit.getPlayer(pid);
+                    if (p != null && p.isOnline()) {
+                        publishToPlayer(p, event);
+                    }
+                }
+                return;
+            }
         }
+
+        // Fallback: no table tracking available, send to all
+        for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+            publishToPlayer(onlinePlayer, event);
+        }
+    }
+
+    public void removeTable(String tableId) {
+        Set<UUID> removed = tablePlayers.remove(tableId);
+        if (removed != null) {
+            for (UUID pid : removed) {
+                playerToTable.remove(pid);
+            }
+        }
+    }
+
+    public void removeAll() {
+        tablePlayers.clear();
+        playerToTable.clear();
+    }
+
+    private void trackMembership(UserFacingEvent event) {
+        String type = event.eventType();
+        if (type == null) return;
+        switch (type) {
+            case "PLAYER_JOINED" -> {
+                UUID pid = asUuid(event.data().get("playerId"));
+                String tid = asString(event.data().get("tableId"));
+                if (pid != null && tid != null) {
+                    tablePlayers.computeIfAbsent(tid, k -> ConcurrentHashMap.newKeySet()).add(pid);
+                    playerToTable.put(pid, tid);
+                }
+            }
+            case "PLAYER_ELIMINATED", "PLAYER_FORFEITED" -> {
+                UUID pid = asUuid(event.data().get("playerId"));
+                if (pid != null) {
+                    String tid = playerToTable.remove(pid);
+                    if (tid != null) {
+                        Set<UUID> set = tablePlayers.get(tid);
+                        if (set != null) set.remove(pid);
+                    }
+                }
+            }
+            case "GAME_FINISHED" -> {
+                String tid = asString(event.data().get("tableId"));
+                if (tid != null) {
+                    Set<UUID> removed = tablePlayers.remove(tid);
+                    if (removed != null) {
+                        for (UUID pid : removed) {
+                            playerToTable.remove(pid);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private UUID asUuid(Object raw) {
+        if (raw instanceof UUID uuid) return uuid;
+        if (raw instanceof String text) {
+            try { return UUID.fromString(text); } catch (IllegalArgumentException ignored) {}
+        }
+        return null;
+    }
+
+    private String asString(Object raw) {
+        return raw != null ? String.valueOf(raw) : null;
     }
 
     private void publishToPlayer(Player player, UserFacingEvent event) {

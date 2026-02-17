@@ -3,6 +3,7 @@ package cn.pianzi.liarbar.paper.presentation;
 import cn.pianzi.liarbar.core.event.CoreEvent;
 import cn.pianzi.liarbar.core.event.CoreEventType;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -10,124 +11,150 @@ import java.util.UUID;
 
 public final class CoreEventTranslator {
     public List<UserFacingEvent> translate(List<CoreEvent> events) {
-        return events.stream()
-                .map(this::translateOne)
-                .toList();
+        if (events.isEmpty()) {
+            return List.of();
+        }
+        List<UserFacingEvent> result = new ArrayList<>(events.size());
+        for (CoreEvent event : events) {
+            result.add(translateOne(event));
+        }
+        return result;
     }
 
     private UserFacingEvent translateOne(CoreEvent event) {
         CoreEventType type = event.type();
-        Map<String, Object> data = withType(event);
+        String typeName = type.name();
+        Map<String, Object> data = event.data();
         return switch (type) {
+            case HOST_ASSIGNED -> {
+                UUID host = asUuid(data.get("playerId"));
+                yield UserFacingEvent.personal(
+                        EventSeverity.INFO,
+                        "event.host_assigned",
+                        host,
+                        typeName,
+                        withEntries(data, Map.of(
+                                "player", shortPlayer(data.get("playerId"))
+                        ))
+                );
+            }
             case MODE_SELECTED -> UserFacingEvent.broadcast(
                     EventSeverity.INFO,
                     "event.mode_selected",
-                    withEntries(data, Map.of("mode", modeName(event.data().get("mode"))))
+                    typeName,
+                    withEntries(data, Map.of("mode", modeName(data.get("mode"))))
             );
             case PLAYER_JOINED -> UserFacingEvent.broadcast(
                     EventSeverity.SUCCESS,
                     "event.player_joined",
+                    typeName,
                     withEntries(data, Map.of(
-                            "player", shortPlayer(event.data().get("playerId")),
-                            "seat", event.data().getOrDefault("seat", "?")
+                            "player", shortPlayer(data.get("playerId")),
+                            "seat", data.getOrDefault("seat", "?")
                     ))
             );
             case PLAYER_FORFEITED -> UserFacingEvent.broadcast(
                     EventSeverity.WARNING,
                     forfeitMessageKey(event),
-                    withEntries(data, Map.of("player", shortPlayer(event.data().get("playerId"))))
+                    typeName,
+                    withEntries(data, Map.of("player", shortPlayer(data.get("playerId"))))
             );
             case PHASE_CHANGED -> UserFacingEvent.broadcast(
                     EventSeverity.INFO,
                     "event.phase_changed",
-                    withEntries(data, Map.of("phase", event.data().getOrDefault("phase", "?")))
+                    typeName,
+                    withEntries(data, Map.of("phase", data.getOrDefault("phase", "?")))
             );
             case DEAL_COMPLETED -> UserFacingEvent.broadcast(
                     EventSeverity.INFO,
                     "event.deal_completed",
+                    typeName,
                     withEntries(data, Map.of(
-                            "mainRank", event.data().getOrDefault("mainRank", "?"),
-                            "round", event.data().getOrDefault("round", "?")
+                            "mainRank", data.getOrDefault("mainRank", "?"),
+                            "round", data.getOrDefault("round", "?")
                     ))
             );
             case TURN_CHANGED -> UserFacingEvent.broadcast(
                     EventSeverity.INFO,
                     "event.turn_changed",
-                    withEntries(data, Map.of("player", shortPlayer(event.data().get("playerId"))))
+                    typeName,
+                    withEntries(data, Map.of("player", shortPlayer(data.get("playerId"))))
             );
             case FORCE_CHALLENGE -> UserFacingEvent.broadcast(
                     EventSeverity.WARNING,
                     "event.force_challenge",
+                    typeName,
                     data
             );
             case CARDS_PLAYED -> UserFacingEvent.broadcast(
                     EventSeverity.INFO,
                     "event.cards_played",
+                    typeName,
                     withEntries(data, Map.of(
-                            "player", shortPlayer(event.data().get("playerId")),
-                            "count", event.data().getOrDefault("count", "?")
+                            "player", shortPlayer(data.get("playerId")),
+                            "count", data.getOrDefault("count", "?")
                     ))
             );
             case CARDS_PLAYED_DETAIL -> {
-                UUID cardOwner = asUuid(event.data().get("playerId"));
+                UUID cardOwner = asUuid(data.get("playerId"));
                 yield UserFacingEvent.personal(
                         EventSeverity.INFO,
                         "event.cards_played_detail",
                         cardOwner,
-                        withEntries(data, Map.of("count", event.data().getOrDefault("count", "?")))
+                        typeName,
+                        withEntries(data, Map.of("count", data.getOrDefault("count", "?")))
                 );
             }
             case CHALLENGE_RESOLVED -> UserFacingEvent.broadcast(
                     EventSeverity.INFO,
                     "event.challenge_resolved",
-                    withEntries(data, Map.of("outcome", event.data().getOrDefault("outcome", "?")))
+                    typeName,
+                    withEntries(data, Map.of("outcome", data.getOrDefault("outcome", "?")))
             );
             case SHOT_RESOLVED -> {
-                boolean lethal = Boolean.TRUE.equals(event.data().get("lethal"));
+                boolean lethal = Boolean.TRUE.equals(data.get("lethal"));
                 yield UserFacingEvent.broadcast(
                         EventSeverity.WARNING,
                         lethal ? "event.shot_resolved_eliminated" : "event.shot_resolved_survived",
-                        withEntries(data, Map.of("player", shortPlayer(event.data().get("playerId"))))
+                        typeName,
+                        withEntries(data, Map.of("player", shortPlayer(data.get("playerId"))))
                 );
             }
             case PLAYER_ELIMINATED -> UserFacingEvent.broadcast(
                     EventSeverity.ERROR,
                     "event.player_eliminated",
-                    withEntries(data, Map.of("player", shortPlayer(event.data().get("playerId"))))
+                    typeName,
+                    withEntries(data, Map.of("player", shortPlayer(data.get("playerId"))))
             );
             case GAME_FINISHED -> UserFacingEvent.broadcast(
                     EventSeverity.SUCCESS,
                     "event.game_finished",
-                    withEntries(data, Map.of("winner", shortPlayer(event.data().get("winner"))))
+                    typeName,
+                    withEntries(data, Map.of("winner", shortPlayer(data.get("winner"))))
             );
             case HAND_DEALT -> {
-                UUID target = asUuid(event.data().get("playerId"));
+                UUID target = asUuid(data.get("playerId"));
                 yield UserFacingEvent.personal(
                         EventSeverity.INFO,
                         "event.hand_dealt",
                         target,
-                        withEntries(data, Map.of("round", event.data().getOrDefault("round", "?")))
+                        typeName,
+                        withEntries(data, Map.of("round", data.getOrDefault("round", "?")))
                 );
             }
         };
     }
 
-    private Map<String, Object> withType(CoreEvent event) {
-        // Pre-size to avoid rehash: original data + _eventType entry
-        Map<String, Object> data = HashMap.newHashMap(event.data().size() + 1);
-        data.putAll(event.data());
-        data.put("_eventType", event.type().name());
-        return data;
-    }
-
     private Map<String, Object> withEntries(Map<String, Object> base, Map<String, Object> extra) {
-        // Mutate base in-place — it's already a fresh HashMap from withType()
+        // Create a fresh mutable map merging base + extra
+        HashMap<String, Object> merged = HashMap.newHashMap(base.size() + extra.size());
+        merged.putAll(base);
         for (Map.Entry<String, Object> entry : extra.entrySet()) {
             if (entry.getKey() != null && entry.getValue() != null) {
-                base.put(entry.getKey(), entry.getValue());
+                merged.put(entry.getKey(), entry.getValue());
             }
         }
-        return base;
+        return merged;
     }
 
     private String shortPlayer(Object value) {

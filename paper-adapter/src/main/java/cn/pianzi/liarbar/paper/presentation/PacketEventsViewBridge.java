@@ -11,8 +11,6 @@ public final class PacketEventsViewBridge {
     }
 
     public void publishAll(List<UserFacingEvent> events) {
-        for (UserFacingEvent event : events) {
-            publisher.publish(event);
-        }
+        publisher.publishAll(events);
     }
 }

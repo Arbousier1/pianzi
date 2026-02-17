@@ -1,9 +1,7 @@
 package cn.pianzi.liarbar.paperplugin.game;
 
 import cn.pianzi.liarbar.paper.application.TableApplicationService;
-import cn.pianzi.liarbar.paper.presentation.PacketEventsViewBridge;
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
-import cn.pianzi.liarbar.paperplugin.stats.LiarBarStatsService;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerKickEvent;
@@ -13,26 +11,21 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 public final class TablePlayerConnectionListener implements Listener {
     private final JavaPlugin plugin;
     private final TableApplicationService tableService;
-    private final PacketEventsViewBridge viewBridge;
-    private final LiarBarStatsService statsService;
-    private final DatapackParityRewardService rewardService;
+    private final Consumer<List<UserFacingEvent>> eventSink;
 
     public TablePlayerConnectionListener(
             JavaPlugin plugin,
             TableApplicationService tableService,
-            PacketEventsViewBridge viewBridge,
-            LiarBarStatsService statsService,
-            DatapackParityRewardService rewardService
+            Consumer<List<UserFacingEvent>> eventSink
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.tableService = Objects.requireNonNull(tableService, "tableService");
-        this.viewBridge = Objects.requireNonNull(viewBridge, "viewBridge");
-        this.statsService = Objects.requireNonNull(statsService, "statsService");
-        this.rewardService = Objects.requireNonNull(rewardService, "rewardService");
+        this.eventSink = Objects.requireNonNull(eventSink, "eventSink");
     }
 
     @EventHandler
@@ -66,9 +59,7 @@ public final class TablePlayerConnectionListener implements Listener {
     }
 
     private void applyEvents(List<UserFacingEvent> events) {
-        statsService.handleEvents(events);
-        rewardService.handleEvents(events);
-        viewBridge.publishAll(events);
+        eventSink.accept(events);
     }
 
     private String rootMessage(Throwable throwable) {

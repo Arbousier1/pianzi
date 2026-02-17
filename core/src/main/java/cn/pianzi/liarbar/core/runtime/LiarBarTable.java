@@ -50,6 +50,7 @@ public final class LiarBarTable {
     private boolean forceChallenge;
 
     private CardRank mainRank;
+    private UUID ownerId;
     private UUID currentPlayerId;
     private UUID lastPlayerId;
     private UUID afterGunCandidateId;
@@ -77,6 +78,7 @@ public final class LiarBarTable {
         this.nextCardId = 1;
         this.forceChallenge = false;
         this.mainRank = null;
+        this.ownerId = null;
         this.currentPlayerId = null;
         this.lastPlayerId = null;
         this.afterGunCandidateId = null;
@@ -86,8 +88,30 @@ public final class LiarBarTable {
         Objects.requireNonNull(actor, "actor");
         Objects.requireNonNull(selectedMode, "selectedMode");
         ensurePhase(GamePhase.MODE_SELECTION, "select mode");
+        if (!Objects.equals(ownerId, actor)) {
+            throw new IllegalStateException("only_host_can_select_mode");
+        }
 
         List<CoreEvent> events = new ArrayList<>();
+
+        if (selectedMode.isWagerMode()) {
+            // Players can now sit before mode selection; charge everyone once mode is locked.
+            // Roll back already charged players if anyone cannot pay to keep behavior atomic.
+            List<UUID> charged = new ArrayList<>();
+            for (PlayerState state : players.values()) {
+                if (!state.alive) {
+                    continue;
+                }
+                if (!economy.charge(state.id, selectedMode, 1)) {
+                    for (UUID paid : charged) {
+                        economy.reward(paid, selectedMode, 1);
+                    }
+                    throw new IllegalStateException("insufficient_balance");
+                }
+                charged.add(state.id);
+            }
+        }
+
         this.mode = selectedMode;
         events.add(CoreEvent.of(
                 CoreEventType.MODE_SELECTED,
@@ -95,12 +119,17 @@ public final class LiarBarTable {
                 Map.of("actor", actor, "mode", selectedMode.name())
         ));
         setPhase(GamePhase.JOINING, events, "mode_selected");
+        if (alivePlayersCount() >= config.maxPlayers()) {
+            events.addAll(startInitialDeal("table_full_after_mode_selected"));
+        }
         return Collections.unmodifiableList(events);
     }
 
     public List<CoreEvent> join(UUID playerId) {
         Objects.requireNonNull(playerId, "playerId");
-        ensurePhase(GamePhase.JOINING, "join");
+        if (phase != GamePhase.MODE_SELECTION && phase != GamePhase.JOINING) {
+            throw new IllegalStateException("cannot join in phase " + phase);
+        }
         List<CoreEvent> events = new ArrayList<>();
         if (players.containsKey(playerId)) {
             throw new IllegalStateException("player already joined: " + playerId);
@@ -112,7 +141,7 @@ public final class LiarBarTable {
         }
 
         if (mode.isWagerMode() && !economy.charge(playerId, mode, 1)) {
-            throw new IllegalStateException("entry fee charge failed for player: " + playerId);
+            throw new IllegalStateException("insufficient_balance");
         }
 
         PlayerState player = new PlayerState(playerId, seat, config.startingBullets());
@@ -126,8 +155,12 @@ public final class LiarBarTable {
                 "player joined",
                 Map.of("playerId", playerId, "seat", seat, "joinedCount", joinedCount)
         ));
+        if (ownerId == null) {
+            ownerId = playerId;
+            events.add(hostAssignedEvent(playerId, null, "first_join"));
+        }
 
-        if (alivePlayersCount() >= config.maxPlayers()) {
+        if (phase == GamePhase.JOINING && alivePlayersCount() >= config.maxPlayers()) {
             events.addAll(startInitialDeal("table_full"));
         }
         return Collections.unmodifiableList(events);
@@ -163,6 +196,9 @@ public final class LiarBarTable {
         }
         if (Objects.equals(afterGunCandidateId, playerId)) {
             afterGunCandidateId = null;
+        }
+        if (Objects.equals(ownerId, playerId)) {
+            reassignOwner(events, playerId, "host_disconnected");
         }
 
         events.add(CoreEvent.of(
@@ -394,6 +430,7 @@ public final class LiarBarTable {
                 Optional.ofNullable(mainRank),
                 List.copyOf(centerCards),
                 snapshots,
+                Optional.ofNullable(ownerId),
                 Optional.ofNullable(currentPlayerId),
                 Optional.ofNullable(lastPlayerId),
                 forceChallenge
@@ -686,6 +723,9 @@ public final class LiarBarTable {
         if (Objects.equals(afterGunCandidateId, state.id)) {
             afterGunCandidateId = null;
         }
+        if (Objects.equals(ownerId, state.id)) {
+            reassignOwner(events, state.id, "host_left_before_start");
+        }
 
         events.add(CoreEvent.of(
                 CoreEventType.PLAYER_FORFEITED,
@@ -718,9 +758,39 @@ public final class LiarBarTable {
         forceChallenge = false;
 
         mainRank = null;
+        ownerId = null;
         currentPlayerId = null;
         lastPlayerId = null;
         afterGunCandidateId = null;
+    }
+
+    private void reassignOwner(List<CoreEvent> events, UUID previousOwner, String reason) {
+        List<UUID> candidates = alivePlayersInSeatOrder();
+        if (candidates.isEmpty()) {
+            ownerId = null;
+            return;
+        }
+        UUID nextOwner = pickRandom(candidates);
+        if (nextOwner == null) {
+            ownerId = null;
+            return;
+        }
+        ownerId = nextOwner;
+        events.add(hostAssignedEvent(nextOwner, previousOwner, reason));
+    }
+
+    private CoreEvent hostAssignedEvent(UUID newOwner, UUID previousOwner, String reason) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("playerId", newOwner);
+        payload.put("reason", reason);
+        if (previousOwner != null) {
+            payload.put("previousOwner", previousOwner);
+        }
+        return CoreEvent.of(
+                CoreEventType.HOST_ASSIGNED,
+                "host assigned",
+                payload
+        );
     }
 
     private List<Card> createRoundDeck(CardRank selectedMain) {

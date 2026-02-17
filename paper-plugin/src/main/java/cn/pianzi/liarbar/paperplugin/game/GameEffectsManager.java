@@ -35,8 +35,6 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class GameEffectsManager {
 
-    private static final String EVENT_TYPE_KEY = "_eventType";
-
     private final TableStructureBuilder structureBuilder;
     private final I18n i18n;
 
@@ -53,7 +51,8 @@ public final class GameEffectsManager {
 
     public void handleEvents(List<UserFacingEvent> events) {
         for (UserFacingEvent event : events) {
-            String type = String.valueOf(event.data().get(EVENT_TYPE_KEY));
+            String type = event.eventType();
+            if (type == null) continue;
             switch (type) {
                 case "PLAYER_JOINED" -> onPlayerJoined(event);
                 case "TURN_CHANGED" -> onTurnChanged(event);

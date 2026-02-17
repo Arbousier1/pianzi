@@ -8,6 +8,7 @@ public record UserFacingEvent(
         EventSeverity severity,
         String message,
         UUID targetPlayer,
+        String eventType,
         Map<String, Object> data
 ) {
     public UserFacingEvent {
@@ -41,15 +42,14 @@ public record UserFacingEvent(
         HashMap<String, Object> enriched = HashMap.newHashMap(data.size() + 1);
         enriched.putAll(data);
         enriched.put("tableId", tableId);
-        // Bypass the compact constructor's safeCopy — we know the map is clean
-        return new UserFacingEvent(severity, message, targetPlayer, Map.copyOf(enriched));
+        return new UserFacingEvent(severity, message, targetPlayer, eventType, Map.copyOf(enriched));
     }
 
-    public static UserFacingEvent broadcast(EventSeverity severity, String message, Map<String, Object> data) {
-        return new UserFacingEvent(severity, message, null, data);
+    public static UserFacingEvent broadcast(EventSeverity severity, String message, String eventType, Map<String, Object> data) {
+        return new UserFacingEvent(severity, message, null, eventType, data);
     }
 
-    public static UserFacingEvent personal(EventSeverity severity, String message, UUID targetPlayer, Map<String, Object> data) {
-        return new UserFacingEvent(severity, message, targetPlayer, data);
+    public static UserFacingEvent personal(EventSeverity severity, String message, UUID targetPlayer, String eventType, Map<String, Object> data) {
+        return new UserFacingEvent(severity, message, targetPlayer, eventType, data);
     }
 }

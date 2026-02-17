@@ -1,6 +1,7 @@
 package cn.pianzi.liarbar.core.event;
 
 public enum CoreEventType {
+    HOST_ASSIGNED,
     MODE_SELECTED,
     PLAYER_JOINED,
     PLAYER_FORFEITED,
@@ -16,4 +17,3 @@ public enum CoreEventType {
     GAME_FINISHED,
     HAND_DEALT
 }
-

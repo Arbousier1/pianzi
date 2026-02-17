@@ -15,7 +15,6 @@ import java.util.Map;
 import java.util.UUID;
 
 public final class DatapackParityRewardService {
-    private static final String EVENT_TYPE_KEY = "_eventType";
 
     private final JavaPlugin plugin;
     private final I18n i18n;
@@ -27,7 +26,7 @@ public final class DatapackParityRewardService {
 
     public void handleEvents(List<UserFacingEvent> events) {
         for (UserFacingEvent event : events) {
-            if (!"GAME_FINISHED".equals(String.valueOf(event.data().get(EVENT_TYPE_KEY)))) {
+            if (!"GAME_FINISHED".equals(event.eventType())) {
                 continue;
             }
             grantLifeModeReward(event);

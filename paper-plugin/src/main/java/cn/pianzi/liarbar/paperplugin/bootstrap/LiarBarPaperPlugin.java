@@ -7,8 +7,8 @@ import cn.pianzi.liarbar.paper.application.TableApplicationService;
 import cn.pianzi.liarbar.paper.command.PaperCommandFacade;
 import cn.pianzi.liarbar.paper.integration.vault.VaultEconomyAdapter;
 import cn.pianzi.liarbar.paper.integration.vault.VaultGateway;
-import cn.pianzi.liarbar.paper.presentation.PacketEventsPublisher;
 import cn.pianzi.liarbar.paper.presentation.PacketEventsViewBridge;
+import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
 import cn.pianzi.liarbar.paperplugin.command.LiarBarCommandExecutor;
 import cn.pianzi.liarbar.paperplugin.config.PluginSettings;
 import cn.pianzi.liarbar.paperplugin.config.TableConfigLoader;
@@ -16,6 +16,8 @@ import cn.pianzi.liarbar.paperplugin.game.ClickableCardPresenter;
 import cn.pianzi.liarbar.paperplugin.game.DatapackParityRewardService;
 import cn.pianzi.liarbar.paperplugin.game.GameEffectsManager;
 import cn.pianzi.liarbar.paperplugin.game.GameBossBarManager;
+import cn.pianzi.liarbar.paperplugin.game.ModeSelectionAnvilGui;
+import cn.pianzi.liarbar.paperplugin.game.TableLobbyHologramManager;
 import cn.pianzi.liarbar.paperplugin.game.TablePlayerConnectionListener;
 import cn.pianzi.liarbar.paperplugin.game.TableSeatManager;
 import cn.pianzi.liarbar.paperplugin.game.TableStructureBuilder;
@@ -60,6 +62,9 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
     private GameBossBarManager bossBarManager;
     private ClickableCardPresenter cardPresenter;
     private GameEffectsManager effectsManager;
+    private TableLobbyHologramManager lobbyHologramManager;
+    private PacketEventsActionBarPublisher actionBarPublisher;
+    private ModeSelectionAnvilGui modeSelectionGui;
     private StatsRepository statsRepository;
     private BukkitTask tickTask;
 
@@ -99,15 +104,17 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         bossBarManager = new GameBossBarManager(i18n);
         cardPresenter = new ClickableCardPresenter(i18n);
         effectsManager = new GameEffectsManager(structureBuilder, i18n);
+        lobbyHologramManager = new TableLobbyHologramManager(structureBuilder, i18n);
         getLogger().info("No table is auto-created. Use /liarbar create as OP at your current location.");
 
         statsRepository = createStatsRepository(settings.databaseConfig());
         statsService = new LiarBarStatsService(this, statsRepository, settings.scoreRule());
 
         commandFacade = new PaperCommandFacade(tableService);
-        PacketEventsPublisher publisher = new PacketEventsActionBarPublisher(this, i18n, packetEventsLifecycle.isReady());
-        viewBridge = new PacketEventsViewBridge(publisher);
+        actionBarPublisher = new PacketEventsActionBarPublisher(this, i18n, packetEventsLifecycle.isReady());
+        viewBridge = new PacketEventsViewBridge(actionBarPublisher);
         rewardService = new DatapackParityRewardService(this, i18n);
+        modeSelectionGui = new ModeSelectionAnvilGui(this, commandFacade, this::applyEvents, i18n);
 
         if (!registerCommands()) {
             getLogger().severe("Failed to register /liarbar command. Disabling plugin.");
@@ -119,12 +126,11 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                 new TablePlayerConnectionListener(
                         this,
                         tableService,
-                        viewBridge,
-                        statsService,
-                        rewardService
+                        this::applyEvents
                 ),
                 this
         );
+        getServer().getPluginManager().registerEvents(modeSelectionGui, this);
 
         restoreSavedTables();
         startTickLoop();
@@ -151,6 +157,21 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         if (effectsManager != null) {
             effectsManager.removeAll();
             effectsManager = null;
+        }
+
+        if (modeSelectionGui != null) {
+            modeSelectionGui.closeAll();
+            modeSelectionGui = null;
+        }
+
+        if (lobbyHologramManager != null) {
+            lobbyHologramManager.removeAll();
+            lobbyHologramManager = null;
+        }
+
+        if (actionBarPublisher != null) {
+            actionBarPublisher.removeAll();
+            actionBarPublisher = null;
         }
 
         if (bossBarManager != null) {
@@ -189,9 +210,9 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         LiarBarCommandExecutor executor = new LiarBarCommandExecutor(
                 this,
                 commandFacade,
-                viewBridge,
+                this::applyEvents,
+                modeSelectionGui,
                 statsService,
-                rewardService,
                 i18n,
                 this::tableIds,
                 this::createConfiguredTableAtPlayer,
@@ -238,7 +259,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         if (ids.isEmpty()) {
             return;
         }
-        record TickResult(String tableId, List<cn.pianzi.liarbar.paper.presentation.UserFacingEvent> events, Throwable error) {}
+        record TickResult(String tableId, List<UserFacingEvent> events, Throwable error) {}
         List<java.util.concurrent.CompletableFuture<TickResult>> futures = new ArrayList<>(ids.size());
         for (String tableId : ids) {
             futures.add(
@@ -256,15 +277,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                             getLogger().log(java.util.logging.Level.WARNING, "Table tick failed: " + result.tableId(), result.error());
                             continue;
                         }
-                        if (!result.events().isEmpty()) {
-                            statsService.handleEvents(result.events());
-                            rewardService.handleEvents(result.events());
-                            seatManager.handleEvents(result.events());
-                            bossBarManager.handleEvents(result.events());
-                            cardPresenter.handleEvents(result.events());
-                            effectsManager.handleEvents(result.events());
-                            viewBridge.publishAll(result.events());
-                        }
+                        applyEvents(result.events());
                     }
                 }));
     }
@@ -282,6 +295,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         if (created) {
             structureBuilder.build(tableId, player.getLocation());
             seatManager.spawnSeats(tableId);
+            lobbyHologramManager.createTable(tableId);
         }
         return new LiarBarCommandExecutor.CreateTableResult(tableId, created);
     }
@@ -291,6 +305,10 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         if (removed) {
             bossBarManager.removeTable(tableId);
             effectsManager.removeTable(tableId);
+            lobbyHologramManager.removeTable(tableId);
+            if (actionBarPublisher != null) {
+                actionBarPublisher.removeTable(tableId);
+            }
             seatManager.removeSeats(tableId);
             structureBuilder.demolish(tableId);
         }
@@ -331,6 +349,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                 if (created) {
                     structureBuilder.build(st.tableId(), loc);
                     seatManager.spawnSeats(st.tableId());
+                    lobbyHologramManager.createTable(st.tableId());
                     restored++;
                 }
             }
@@ -355,5 +374,35 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                 yield new H2StatsRepository(getDataFolder().toPath());
             }
         };
+    }
+
+    private void applyEvents(List<UserFacingEvent> events) {
+        if (events == null || events.isEmpty()) {
+            return;
+        }
+        if (statsService != null) {
+            statsService.handleEvents(events);
+        }
+        if (rewardService != null) {
+            rewardService.handleEvents(events);
+        }
+        if (seatManager != null) {
+            seatManager.handleEvents(events);
+        }
+        if (bossBarManager != null) {
+            bossBarManager.handleEvents(events);
+        }
+        if (cardPresenter != null) {
+            cardPresenter.handleEvents(events);
+        }
+        if (effectsManager != null) {
+            effectsManager.handleEvents(events);
+        }
+        if (lobbyHologramManager != null) {
+            lobbyHologramManager.handleEvents(events);
+        }
+        if (viewBridge != null) {
+            viewBridge.publishAll(events);
+        }
     }
 }
