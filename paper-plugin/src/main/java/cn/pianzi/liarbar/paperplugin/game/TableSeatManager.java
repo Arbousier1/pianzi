@@ -3,6 +3,7 @@ package cn.pianzi.liarbar.paperplugin.game;
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
 import org.bukkit.entity.Player;
@@ -233,9 +234,47 @@ public final class TableSeatManager {
             return false;
         }
 
-        dismount(player);
-        interaction.addPassenger(player);
-        return true;
+        return mountNativeSeat(player, interaction);
+    }
+
+    /**
+     * Try to seat player by clicking a seat block (oak stair).
+     * Works with GSit and native seat backend.
+     */
+    public boolean seatBySeatBlock(Player player, Block clickedBlock) {
+        if (player == null || clickedBlock == null) {
+            return false;
+        }
+
+        SeatRef seat = resolveSeatByBlock(clickedBlock);
+        if (seat == null) {
+            return false;
+        }
+
+        Location seatLoc = seat.seatLocation();
+        seatLoc.setYaw(SEAT_YAWS[seat.seatIndex()]);
+        seatLoc.setPitch(10f);
+        player.teleport(seatLoc);
+
+        if (gsitBridge != null) {
+            if (gsitBridge.sit(player, seatLoc.getBlock(), seatLoc.getYaw())) {
+                return true;
+            }
+            plugin.getLogger().warning("GSit seat failed for " + player.getName() + ", fallback to native seat.");
+        }
+
+        if (!tableSeatEntities.containsKey(seat.tableId())) {
+            spawnNativeSeats(seat.tableId());
+        }
+        List<UUID> entities = tableSeatEntities.get(seat.tableId());
+        if (entities == null || seat.seatIndex() < 0 || seat.seatIndex() >= entities.size()) {
+            return false;
+        }
+        Entity seatEntity = Bukkit.getEntity(entities.get(seat.seatIndex()));
+        if (!(seatEntity instanceof Interaction interaction)) {
+            return false;
+        }
+        return mountNativeSeat(player, interaction);
     }
 
     /**
@@ -403,6 +442,38 @@ public final class TableSeatManager {
         if (vehicle instanceof Interaction) {
             vehicle.removePassenger(player);
         }
+    }
+
+    private boolean mountNativeSeat(Player player, Interaction interaction) {
+        if (!interaction.getPassengers().isEmpty()) {
+            return false;
+        }
+        dismount(player);
+        interaction.addPassenger(player);
+        return true;
+    }
+
+    private SeatRef resolveSeatByBlock(Block clickedBlock) {
+        for (String tableId : structureBuilder.tableIds()) {
+            List<Location> seatLocations = seatLocationsOf(tableId);
+            for (int seatIndex = 0; seatIndex < seatLocations.size(); seatIndex++) {
+                Block seatBlock = seatLocations.get(seatIndex).getBlock();
+                if (sameBlock(seatBlock, clickedBlock)) {
+                    return new SeatRef(tableId, seatIndex, seatLocations.get(seatIndex).clone());
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean sameBlock(Block a, Block b) {
+        return Objects.equals(a.getWorld(), b.getWorld())
+                && a.getX() == b.getX()
+                && a.getY() == b.getY()
+                && a.getZ() == b.getZ();
+    }
+
+    private record SeatRef(String tableId, int seatIndex, Location seatLocation) {
     }
 
 }

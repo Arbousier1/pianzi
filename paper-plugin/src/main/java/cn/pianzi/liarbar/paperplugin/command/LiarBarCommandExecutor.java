@@ -172,19 +172,6 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         }
 
         String tableId = args[1];
-        String seatedTable = seatManager.tableOf(player.getUniqueId());
-        if (seatedTable == null) {
-            send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.must_be_seated", Map.of(
-                    "table", MiniMessageSupport.escape(tableId)
-            ))));
-            return true;
-        }
-        if (!tableId.equals(seatedTable)) {
-            send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.seated_other_table", Map.of(
-                    "table", MiniMessageSupport.escape(seatedTable)
-            ))));
-            return true;
-        }
         commandFacade.snapshot(tableId).whenComplete((snapshot, throwable) ->
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     if (throwable != null) {
@@ -194,14 +181,28 @@ public final class LiarBarCommandExecutor implements TabExecutor {
                         return;
                     }
 
-                    if (snapshot.phase() == GamePhase.MODE_SELECTION
-                            && snapshot.players().stream().anyMatch(p -> p.playerId().equals(player.getUniqueId()))) {
+                    boolean joined = snapshot.players().stream().anyMatch(p -> p.playerId().equals(player.getUniqueId()));
+                    if (snapshot.phase() == GamePhase.MODE_SELECTION && joined) {
                         if (snapshot.owner().filter(owner -> owner.equals(player.getUniqueId())).isPresent()) {
                             send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.reopen_mode_gui")));
                             modeSelectionGui.open(player, tableId);
                         } else {
                             send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.wait_for_host")));
                         }
+                        return;
+                    }
+
+                    String seatedTable = seatManager.tableOf(player.getUniqueId());
+                    if (seatedTable == null) {
+                        send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.must_be_seated", Map.of(
+                                "table", MiniMessageSupport.escape(tableId)
+                        ))));
+                        return;
+                    }
+                    if (!tableId.equals(seatedTable)) {
+                        send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.seated_other_table", Map.of(
+                                "table", MiniMessageSupport.escape(seatedTable)
+                        ))));
                         return;
                     }
 

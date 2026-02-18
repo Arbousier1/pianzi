@@ -127,19 +127,21 @@ final class GsitSeatBridge {
     Set<UUID> seatedPlayersOnBlocks(List<Block> blocks) {
         Set<UUID> players = new HashSet<>();
         for (Block block : blocks) {
-            try {
-                Object seats = getSeatsByBlock.invoke(null, block);
-                if (!(seats instanceof Iterable<?> iterable)) {
-                    continue;
-                }
-                for (Object seat : iterable) {
-                    Object entity = seatGetEntity.invoke(seat);
-                    if (entity instanceof Entity bukkitEntity) {
-                        players.add(bukkitEntity.getUniqueId());
+            for (Block probe : verticallyAdjacentBlocks(block)) {
+                try {
+                    Object seats = getSeatsByBlock.invoke(null, probe);
+                    if (!(seats instanceof Iterable<?> iterable)) {
+                        continue;
                     }
+                    for (Object seat : iterable) {
+                        Object entity = seatGetEntity.invoke(seat);
+                        if (entity instanceof Entity bukkitEntity) {
+                            players.add(bukkitEntity.getUniqueId());
+                        }
+                    }
+                } catch (Throwable throwable) {
+                    plugin.getLogger().log(Level.FINE, "Failed to read GSit seats on block " + probe, throwable);
                 }
-            } catch (Throwable throwable) {
-                plugin.getLogger().log(Level.FINE, "Failed to read GSit seats on block " + block, throwable);
             }
         }
         return players;
@@ -156,7 +158,7 @@ final class GsitSeatBridge {
                 return false;
             }
             for (Block block : blocks) {
-                if (sameBlock(block, seatBlock)) {
+                if (matchesSeatBlock(block, seatBlock)) {
                     return true;
                 }
             }
@@ -167,10 +169,18 @@ final class GsitSeatBridge {
         }
     }
 
-    private boolean sameBlock(Block a, Block b) {
-        return Objects.equals(a.getWorld(), b.getWorld())
-                && a.getX() == b.getX()
-                && a.getY() == b.getY()
-                && a.getZ() == b.getZ();
+    private boolean matchesSeatBlock(Block expected, Block actual) {
+        return Objects.equals(expected.getWorld(), actual.getWorld())
+                && expected.getX() == actual.getX()
+                && expected.getZ() == actual.getZ()
+                && Math.abs(expected.getY() - actual.getY()) <= 1;
+    }
+
+    private List<Block> verticallyAdjacentBlocks(Block base) {
+        return List.of(
+                base,
+                base.getRelative(0, 1, 0),
+                base.getRelative(0, -1, 0)
+        );
     }
 }
