@@ -1,6 +1,7 @@
 package cn.pianzi.liarbar.paperplugin.bootstrap;
 
 import cn.pianzi.liarbar.core.config.TableConfig;
+import cn.pianzi.liarbar.core.domain.GamePhase;
 import cn.pianzi.liarbar.core.port.EconomyPort;
 import cn.pianzi.liarbar.core.port.RandomSource;
 import cn.pianzi.liarbar.core.snapshot.PlayerSnapshot;
@@ -145,7 +146,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                 this
         );
         getServer().getPluginManager().registerEvents(
-                new TableSeatInteractionListener(seatManager),
+                new TableSeatInteractionListener(seatManager, this::handlePlayerSeated),
                 this
         );
         restoreSavedTables();
@@ -295,6 +296,50 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                         applyEvents(result.events());
                     }
                 }));
+    }
+
+    private void handlePlayerSeated(Player player, String tableId) {
+        if (player == null || tableId == null || tableId.isBlank() || tableService == null) {
+            return;
+        }
+        UUID playerId = player.getUniqueId();
+        tableService.snapshot(tableId)
+                .thenCompose(snapshot -> {
+                    boolean joined = snapshot.players().stream()
+                            .anyMatch(p -> p.playerId().equals(playerId));
+                    if (joined) {
+                        return CompletableFuture.completedFuture(List.<UserFacingEvent>of());
+                    }
+                    return tableService.join(tableId, playerId);
+                })
+                .whenComplete((events, throwable) ->
+                        getServer().getScheduler().runTask(this, () -> {
+                            if (throwable != null) {
+                                maybeLogSeatSyncError(tableId, "join", playerId, throwable);
+                                return;
+                            }
+                            applyEvents(events);
+                            reopenModeDialogIfNeeded(player, tableId);
+                        }));
+    }
+
+    private void reopenModeDialogIfNeeded(Player player, String tableId) {
+        if (modeSelectionGui == null || player == null || !player.isOnline() || tableService == null) {
+            return;
+        }
+        UUID playerId = player.getUniqueId();
+        tableService.snapshot(tableId).whenComplete((snapshot, throwable) ->
+                getServer().getScheduler().runTask(this, () -> {
+                    if (throwable != null || snapshot == null || snapshot.phase() != GamePhase.MODE_SELECTION) {
+                        return;
+                    }
+                    boolean joined = snapshot.players().stream()
+                            .anyMatch(p -> p.playerId().equals(playerId));
+                    if (joined && tableId.equals(seatManager.tableOf(playerId))) {
+                        modeSelectionGui.open(player, tableId);
+                    }
+                })
+        );
     }
 
     private CompletionStage<List<UserFacingEvent>> syncSeatMembershipAndTick(String tableId, List<UUID> seatedInSeatOrder) {

@@ -237,6 +237,13 @@ public final class TableSeatManager {
         return mountNativeSeat(player, interaction);
     }
 
+    public String tableOfSeatEntity(UUID seatEntityId) {
+        if (seatEntityId == null) {
+            return null;
+        }
+        return seatEntityToTable.get(seatEntityId);
+    }
+
     /**
      * Try to seat player by clicking a seat block (oak stair).
      * Works with GSit and native seat backend.
@@ -275,6 +282,14 @@ public final class TableSeatManager {
             return false;
         }
         return mountNativeSeat(player, interaction);
+    }
+
+    public String tableOfSeatBlock(Block clickedBlock) {
+        if (clickedBlock == null) {
+            return null;
+        }
+        SeatRef seat = resolveSeatByBlock(clickedBlock);
+        return seat == null ? null : seat.tableId();
     }
 
     /**
