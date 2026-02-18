@@ -179,6 +179,10 @@ public final class LiarBarTable {
             ownerId = playerId;
             events.add(hostAssignedEvent(playerId, null, "first_join"));
         }
+        if (phase == GamePhase.MODE_SELECTION) {
+            // A new host just sat down; restart mode-selection timeout window.
+            phaseSeconds = 0;
+        }
 
         if (phase == GamePhase.JOINING && alivePlayersCount() >= config.maxPlayers()) {
             events.addAll(startInitialDeal("table_full"));

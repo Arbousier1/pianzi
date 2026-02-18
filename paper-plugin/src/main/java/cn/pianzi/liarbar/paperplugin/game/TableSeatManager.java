@@ -9,7 +9,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -158,25 +157,47 @@ public final class TableSeatManager {
      * Detect currently seated players on the given table from actual seat occupancy.
      */
     public Set<UUID> seatedPlayersAtTable(String tableId) {
+        return Set.copyOf(seatedPlayersInSeatOrder(tableId));
+    }
+
+    /**
+     * Detect currently seated players on the given table in seat index order.
+     * seat-1, seat-2, seat-3, seat-4.
+     */
+    public List<UUID> seatedPlayersInSeatOrder(String tableId) {
         if (tableId == null || tableId.isBlank()) {
-            return Set.of();
+            return List.of();
         }
 
         List<Location> seatLocations = seatLocationsOf(tableId);
         if (seatLocations.isEmpty()) {
-            return Set.of();
+            return List.of();
         }
 
         if (gsitBridge != null) {
-            return Set.copyOf(gsitBridge.seatedPlayersOnBlocks(seatLocations.stream().map(Location::getBlock).toList()));
+            List<UUID> ordered = new ArrayList<>(seatLocations.size());
+            for (Location seatLocation : seatLocations) {
+                Set<UUID> seated = gsitBridge.seatedPlayersOnBlocks(List.of(seatLocation.getBlock()));
+                if (seated.isEmpty()) {
+                    continue;
+                }
+                UUID selected = seated.stream()
+                        .sorted((a, b) -> a.toString().compareToIgnoreCase(b.toString()))
+                        .findFirst()
+                        .orElse(null);
+                if (selected != null) {
+                    ordered.add(selected);
+                }
+            }
+            return List.copyOf(ordered);
         }
 
         List<UUID> entities = tableSeatEntities.get(tableId);
         if (entities == null || entities.isEmpty()) {
-            return Set.of();
+            return List.of();
         }
 
-        Set<UUID> players = new HashSet<>();
+        List<UUID> players = new ArrayList<>(entities.size());
         for (UUID entityId : entities) {
             Entity entity = Bukkit.getEntity(entityId);
             if (entity == null) {
@@ -185,10 +206,36 @@ public final class TableSeatManager {
             for (Entity passenger : entity.getPassengers()) {
                 if (passenger instanceof Player player) {
                     players.add(player.getUniqueId());
+                    break;
                 }
             }
         }
-        return Set.copyOf(players);
+        return List.copyOf(players);
+    }
+
+    /**
+     * Try to seat player by clicking a native seat interaction entity.
+     */
+    public boolean seatByNativeSeatEntity(Player player, UUID seatEntityId) {
+        if (player == null || seatEntityId == null || gsitBridge != null) {
+            return false;
+        }
+        String tableId = seatEntityToTable.get(seatEntityId);
+        if (tableId == null) {
+            return false;
+        }
+
+        Entity seatEntity = Bukkit.getEntity(seatEntityId);
+        if (!(seatEntity instanceof Interaction interaction)) {
+            return false;
+        }
+        if (!interaction.getPassengers().isEmpty()) {
+            return false;
+        }
+
+        dismount(player);
+        interaction.addPassenger(player);
+        return true;
     }
 
     /**

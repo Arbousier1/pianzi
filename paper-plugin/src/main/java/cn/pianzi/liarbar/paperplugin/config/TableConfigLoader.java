@@ -16,7 +16,8 @@ public final class TableConfigLoader {
         int firstTurnSeconds = positive(config.getInt("table.first-turn-seconds", defaults.firstTurnSeconds()), defaults.firstTurnSeconds());
         int standardTurnSeconds = positive(config.getInt("table.standard-turn-seconds", defaults.standardTurnSeconds()), defaults.standardTurnSeconds());
         int resolveChallengeSeconds = positive(config.getInt("table.resolve-challenge-seconds", defaults.resolveChallengeSeconds()), defaults.resolveChallengeSeconds());
-        int maxPlayers = positive(config.getInt("table.max-players", defaults.maxPlayers()), defaults.maxPlayers());
+        // The in-world table has exactly 4 seats, so runtime max players is fixed to 4.
+        int maxPlayers = 4;
         int handSize = positive(config.getInt("table.hand-size", defaults.handSize()), defaults.handSize());
         int minPlayCards = positive(config.getInt("table.min-play-cards", defaults.minPlayCards()), defaults.minPlayCards());
         int maxPlayCards = positive(config.getInt("table.max-play-cards", defaults.maxPlayCards()), defaults.maxPlayCards());

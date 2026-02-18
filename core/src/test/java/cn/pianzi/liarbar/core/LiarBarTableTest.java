@@ -138,6 +138,39 @@ class LiarBarTableTest {
     }
 
     @Test
+    void shouldResetModeSelectionTimerWhenHostJoins() {
+        TableConfig config = new TableConfig(
+                2,
+                20,
+                5,
+                30,
+                30,
+                5,
+                4,
+                5,
+                1,
+                3,
+                6
+        );
+        LiarBarTable table = new LiarBarTable(
+                "mode_timer_reset",
+                config,
+                EconomyPort.noop(),
+                new SeededRandomSource(23L)
+        );
+
+        table.tickSecond(); // MODE_SELECTION timer is now 1 / 2.
+        UUID host = UUID.randomUUID();
+        table.join(host);
+        table.tickSecond();
+
+        GameSnapshot snapshot = table.snapshot();
+        assertEquals(GamePhase.MODE_SELECTION, snapshot.phase());
+        assertEquals(1, snapshot.joinedCount());
+        assertEquals(host, snapshot.owner().orElseThrow());
+    }
+
+    @Test
     void shouldAdvanceToStandardTurnAfterPlay() {
         LiarBarTable table = new LiarBarTable(
                 "b",

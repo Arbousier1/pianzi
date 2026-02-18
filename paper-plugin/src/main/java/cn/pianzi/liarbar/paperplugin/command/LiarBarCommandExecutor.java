@@ -10,6 +10,7 @@ import cn.pianzi.liarbar.paper.command.PaperCommandFacade;
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
 import cn.pianzi.liarbar.paperplugin.config.PluginSettings;
 import cn.pianzi.liarbar.paperplugin.game.ModeSelectionDialogGui;
+import cn.pianzi.liarbar.paperplugin.game.TableSeatManager;
 import cn.pianzi.liarbar.paperplugin.i18n.I18n;
 import cn.pianzi.liarbar.paperplugin.presentation.MiniMessageSupport;
 import cn.pianzi.liarbar.paperplugin.stats.LiarBarStatsService;
@@ -50,6 +51,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
     private final PaperCommandFacade commandFacade;
     private final Consumer<List<UserFacingEvent>> eventSink;
     private final ModeSelectionDialogGui modeSelectionGui;
+    private final TableSeatManager seatManager;
     private final LiarBarStatsService statsService;
     private final I18n i18n;
     private final Supplier<List<String>> tableIdsSupplier;
@@ -61,6 +63,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
             PaperCommandFacade commandFacade,
             Consumer<List<UserFacingEvent>> eventSink,
             ModeSelectionDialogGui modeSelectionGui,
+            TableSeatManager seatManager,
             LiarBarStatsService statsService,
             I18n i18n,
             Supplier<List<String>> tableIdsSupplier,
@@ -71,6 +74,7 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         this.commandFacade = Objects.requireNonNull(commandFacade, "commandFacade");
         this.eventSink = Objects.requireNonNull(eventSink, "eventSink");
         this.modeSelectionGui = Objects.requireNonNull(modeSelectionGui, "modeSelectionGui");
+        this.seatManager = Objects.requireNonNull(seatManager, "seatManager");
         this.statsService = Objects.requireNonNull(statsService, "statsService");
         this.i18n = Objects.requireNonNull(i18n, "i18n");
         this.tableIdsSupplier = Objects.requireNonNull(tableIdsSupplier, "tableIdsSupplier");
@@ -168,6 +172,19 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         }
 
         String tableId = args[1];
+        String seatedTable = seatManager.tableOf(player.getUniqueId());
+        if (seatedTable == null) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.must_be_seated", Map.of(
+                    "table", MiniMessageSupport.escape(tableId)
+            ))));
+            return true;
+        }
+        if (!tableId.equals(seatedTable)) {
+            send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.seated_other_table", Map.of(
+                    "table", MiniMessageSupport.escape(seatedTable)
+            ))));
+            return true;
+        }
         commandFacade.snapshot(tableId).whenComplete((snapshot, throwable) ->
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     if (throwable != null) {

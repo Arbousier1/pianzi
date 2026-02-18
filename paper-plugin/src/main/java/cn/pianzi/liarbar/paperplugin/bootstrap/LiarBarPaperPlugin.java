@@ -1,8 +1,10 @@
 package cn.pianzi.liarbar.paperplugin.bootstrap;
 
 import cn.pianzi.liarbar.core.config.TableConfig;
+import cn.pianzi.liarbar.core.domain.GamePhase;
 import cn.pianzi.liarbar.core.port.EconomyPort;
 import cn.pianzi.liarbar.core.port.RandomSource;
+import cn.pianzi.liarbar.core.snapshot.PlayerSnapshot;
 import cn.pianzi.liarbar.paper.application.TableApplicationService;
 import cn.pianzi.liarbar.paper.command.PaperCommandFacade;
 import cn.pianzi.liarbar.paper.integration.vault.VaultEconomyAdapter;
@@ -19,6 +21,7 @@ import cn.pianzi.liarbar.paperplugin.game.GameBossBarManager;
 import cn.pianzi.liarbar.paperplugin.game.ModeSelectionDialogGui;
 import cn.pianzi.liarbar.paperplugin.game.TableLobbyHologramManager;
 import cn.pianzi.liarbar.paperplugin.game.TablePlayerConnectionListener;
+import cn.pianzi.liarbar.paperplugin.game.TableSeatInteractionListener;
 import cn.pianzi.liarbar.paperplugin.game.TableSeatManager;
 import cn.pianzi.liarbar.paperplugin.game.TableStructureBuilder;
 import cn.pianzi.liarbar.paperplugin.i18n.I18n;
@@ -43,7 +46,15 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+
+import static cn.pianzi.liarbar.paperplugin.util.ExceptionUtils.rootMessage;
 
 public final class LiarBarPaperPlugin extends JavaPlugin {
     private PacketEventsLifecycle packetEventsLifecycle;
@@ -131,6 +142,10 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                 ),
                 this
         );
+        getServer().getPluginManager().registerEvents(
+                new TableSeatInteractionListener(seatManager),
+                this
+        );
         restoreSavedTables();
         startTickLoop();
     }
@@ -211,6 +226,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                 commandFacade,
                 this::applyEvents,
                 modeSelectionGui,
+                seatManager,
                 statsService,
                 i18n,
                 this::tableIds,
@@ -259,16 +275,19 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
             return;
         }
         record TickResult(String tableId, List<UserFacingEvent> events, Throwable error) {}
-        List<java.util.concurrent.CompletableFuture<TickResult>> futures = new ArrayList<>(ids.size());
+        List<CompletableFuture<TickResult>> futures = new ArrayList<>(ids.size());
         for (String tableId : ids) {
+            List<UUID> seatedInSeatOrder = seatManager != null
+                    ? seatManager.seatedPlayersInSeatOrder(tableId)
+                    : List.of();
             futures.add(
-                    tableService.tick(tableId)
+                    syncSeatMembershipAndTick(tableId, seatedInSeatOrder)
                             .thenApply(events -> new TickResult(tableId, events, null))
                             .exceptionally(ex -> new TickResult(tableId, List.of(), ex))
                             .toCompletableFuture()
             );
         }
-        java.util.concurrent.CompletableFuture.allOf(futures.toArray(java.util.concurrent.CompletableFuture[]::new))
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
                 .thenRun(() -> getServer().getScheduler().runTask(this, () -> {
                     for (var future : futures) {
                         TickResult result = future.join();
@@ -279,6 +298,87 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                         applyEvents(result.events());
                     }
                 }));
+    }
+
+    private CompletionStage<List<UserFacingEvent>> syncSeatMembershipAndTick(String tableId, List<UUID> seatedInSeatOrder) {
+        Set<UUID> seatedNow = new HashSet<>(seatedInSeatOrder);
+        return tableService.snapshot(tableId).thenCompose(snapshot -> {
+            Set<UUID> joinedNow = new HashSet<>();
+            for (PlayerSnapshot player : snapshot.players()) {
+                joinedNow.add(player.playerId());
+            }
+
+            List<UUID> toLeave = new ArrayList<>();
+            for (PlayerSnapshot player : snapshot.players()) {
+                if (!seatedNow.contains(player.playerId())) {
+                    toLeave.add(player.playerId());
+                }
+            }
+
+            List<UUID> toJoin = new ArrayList<>();
+            for (UUID seatedPlayer : seatedInSeatOrder) {
+                if (!joinedNow.contains(seatedPlayer)) {
+                    toJoin.add(seatedPlayer);
+                }
+            }
+
+            CompletionStage<List<UserFacingEvent>> sequence = CompletableFuture.completedFuture(List.of());
+            for (UUID playerId : toLeave) {
+                sequence = sequence.thenCompose(accumulated ->
+                        tableService.playerDisconnected(tableId, playerId).handle((events, throwable) -> {
+                            if (throwable != null) {
+                                maybeLogSeatSyncError(tableId, "leave", playerId, throwable);
+                                return accumulated;
+                            }
+                            return appendEvents(accumulated, events);
+                        })
+                );
+            }
+            for (UUID playerId : toJoin) {
+                sequence = sequence.thenCompose(accumulated ->
+                        tableService.join(tableId, playerId).handle((events, throwable) -> {
+                            if (throwable != null) {
+                                maybeLogSeatSyncError(tableId, "join", playerId, throwable);
+                                return accumulated;
+                            }
+                            return appendEvents(accumulated, events);
+                        })
+                );
+            }
+
+            return sequence.thenCompose(accumulated ->
+                    tableService.tick(tableId).thenApply(tickEvents -> appendEvents(accumulated, tickEvents))
+            );
+        });
+    }
+
+    private List<UserFacingEvent> appendEvents(List<UserFacingEvent> left, List<UserFacingEvent> right) {
+        if ((left == null || left.isEmpty()) && (right == null || right.isEmpty())) {
+            return List.of();
+        }
+        List<UserFacingEvent> merged = new ArrayList<>((left == null ? 0 : left.size()) + (right == null ? 0 : right.size()));
+        if (left != null && !left.isEmpty()) {
+            merged.addAll(left);
+        }
+        if (right != null && !right.isEmpty()) {
+            merged.addAll(right);
+        }
+        return List.copyOf(merged);
+    }
+
+    private void maybeLogSeatSyncError(String tableId, String action, UUID playerId, Throwable throwable) {
+        String reason = rootMessage(throwable);
+        String lowered = reason.toLowerCase(Locale.ROOT);
+        boolean noisyExpected = lowered.contains("player already joined")
+                || lowered.contains("cannot join in phase")
+                || lowered.contains("table is full")
+                || lowered.contains("table not found")
+                || lowered.contains("insufficient_balance");
+        if (noisyExpected) {
+            return;
+        }
+        getLogger().warning("Seat sync " + action + " failed. table="
+                + tableId + ", player=" + playerId + ", reason=" + reason);
     }
 
     private LiarBarCommandExecutor.CreateTableResult createConfiguredTableAtPlayer(Player player, String requestedId) {
@@ -402,6 +502,46 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         }
         if (viewBridge != null) {
             viewBridge.publishAll(events);
+        }
+        maybeOpenModeSelectionDialogForHost(events);
+    }
+
+    private void maybeOpenModeSelectionDialogForHost(List<UserFacingEvent> events) {
+        if (modeSelectionGui == null || commandFacade == null) {
+            return;
+        }
+        for (UserFacingEvent event : events) {
+            if (!"HOST_ASSIGNED".equals(event.eventType())) {
+                continue;
+            }
+            Object hostRaw = event.data().get("playerId");
+            Object tableRaw = event.data().get("tableId");
+            if (!(hostRaw instanceof UUID hostId)) {
+                continue;
+            }
+            if (!(tableRaw instanceof String tableId) || tableId.isBlank()) {
+                continue;
+            }
+
+            Player host = getServer().getPlayer(hostId);
+            if (host == null || !host.isOnline()) {
+                continue;
+            }
+
+            commandFacade.snapshot(tableId).whenComplete((snapshot, throwable) ->
+                    getServer().getScheduler().runTask(this, () -> {
+                        if (throwable != null) {
+                            return;
+                        }
+                        if (snapshot.phase() != GamePhase.MODE_SELECTION) {
+                            return;
+                        }
+                        if (snapshot.owner().isEmpty() || !snapshot.owner().get().equals(hostId)) {
+                            return;
+                        }
+                        modeSelectionGui.open(host, tableId);
+                    })
+            );
         }
     }
 }
