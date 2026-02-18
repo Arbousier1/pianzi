@@ -34,7 +34,8 @@ public final class CoreEventTranslator {
                         host,
                         typeName,
                         withEntries(data, Map.of(
-                                "player", shortPlayer(data.get("playerId"))
+                                "player", shortPlayer(data.get("playerId")),
+                                "table", data.getOrDefault("tableId", "?")
                         ))
                 );
             }

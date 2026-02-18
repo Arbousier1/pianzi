@@ -1,6 +1,8 @@
 package cn.pianzi.liarbar.paperplugin.game;
 
 import cn.pianzi.liarbar.core.domain.TableMode;
+import cn.pianzi.liarbar.core.domain.GamePhase;
+import static cn.pianzi.liarbar.paperplugin.util.ExceptionUtils.rootMessage;
 import cn.pianzi.liarbar.paper.command.CommandOutcome;
 import cn.pianzi.liarbar.paper.command.PaperCommandFacade;
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
@@ -37,6 +39,7 @@ import java.util.function.Consumer;
 public final class ModeSelectionDialogGui {
 
     private static final String INPUT_MODE = "mode";
+    private static final String INPUT_WAGER = "wager";
 
     private final JavaPlugin plugin;
     private final PaperCommandFacade commandFacade;
@@ -82,7 +85,13 @@ public final class ModeSelectionDialogGui {
                 .tooltip(parse(i18n.t("ui.mode_gui.confirm_hint")))
                 .width(180)
                 .action(DialogAction.customClick(
-                        (response, audience) -> handleConfirm(playerId, session, response.getText(INPUT_MODE), audience),
+                        (response, audience) -> handleConfirm(
+                                playerId,
+                                session,
+                                response.getText(INPUT_MODE),
+                                response.getText(INPUT_WAGER),
+                                audience
+                        ),
                         ClickCallback.Options.builder()
                                 .uses(1)
                                 .lifetime(Duration.ofMinutes(2))
@@ -99,6 +108,7 @@ public final class ModeSelectionDialogGui {
                 DialogBody.plainMessage(parse(i18n.t("ui.mode_gui.mode.life")), 320),
                 DialogBody.plainMessage(parse(i18n.t("ui.mode_gui.mode.fantuan")), 320),
                 DialogBody.plainMessage(parse(i18n.t("ui.mode_gui.mode.money")), 320),
+                DialogBody.plainMessage(parse(i18n.t("ui.mode_gui.wager_input_hint")), 320),
                 DialogBody.plainMessage(parse(i18n.t("ui.mode_gui.table_hint", Map.of(
                         "table", MiniMessageSupport.escape(session.tableId())
                 ))), 320)
@@ -111,7 +121,11 @@ public final class ModeSelectionDialogGui {
         );
 
         List<DialogInput> inputs = List.of(
-                DialogInput.singleOption(INPUT_MODE, parse(i18n.t("ui.mode_gui.mode_input_label")), modeOptions).build()
+                DialogInput.singleOption(INPUT_MODE, parse(i18n.t("ui.mode_gui.mode_input_label")), modeOptions).build(),
+                DialogInput.text(INPUT_WAGER, parse(i18n.t("ui.mode_gui.wager_input_label")))
+                        .initial("1")
+                        .maxLength(7)
+                        .build()
         );
 
         DialogBase base = DialogBase.builder(parse(i18n.t("ui.mode_gui.title")))
@@ -127,7 +141,7 @@ public final class ModeSelectionDialogGui {
         );
     }
 
-    private void handleConfirm(UUID playerId, Session session, String rawMode, Audience audience) {
+    private void handleConfirm(UUID playerId, Session session, String rawMode, String rawWager, Audience audience) {
         if (!(audience instanceof Player player)) {
             return;
         }
@@ -145,7 +159,35 @@ public final class ModeSelectionDialogGui {
             return;
         }
 
-        selectMode(player, session.tableId(), mode, 1);
+        Integer wager = parseWager(mode, rawWager);
+        if (wager == null) {
+            player.sendMessage(MiniMessageSupport.parse(MiniMessageSupport.prefixed(
+                    i18n.t("command.mode.invalid_wager", Map.of("wager", rawWager == null ? "" : rawWager))
+            )));
+            return;
+        }
+
+        verifyHostAndSelectMode(player, session.tableId(), mode, wager);
+    }
+
+    private void verifyHostAndSelectMode(Player player, String tableId, TableMode mode, int wager) {
+        commandFacade.snapshot(tableId).whenComplete((snapshot, throwable) ->
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (throwable != null) {
+                        sendFailed(player, localizedReason(throwable));
+                        return;
+                    }
+                    if (snapshot.phase() != GamePhase.MODE_SELECTION) {
+                        sendFailed(player, i18n.t("command.join.wait_for_host"));
+                        return;
+                    }
+                    if (snapshot.owner().isEmpty() || !snapshot.owner().get().equals(player.getUniqueId())) {
+                        sendFailed(player, i18n.t("command.mode.host_only"));
+                        return;
+                    }
+                    selectMode(player, tableId, mode, wager);
+                })
+        );
     }
 
     private void selectMode(Player player, String tableId, TableMode mode, int wager) {
@@ -186,6 +228,21 @@ public final class ModeSelectionDialogGui {
         );
     }
 
+    private Integer parseWager(TableMode mode, String rawWager) {
+        if (mode != TableMode.KUNKUN_COIN) {
+            return 1;
+        }
+        if (rawWager == null || rawWager.isBlank()) {
+            return 1;
+        }
+        try {
+            int wager = Integer.parseInt(rawWager.trim());
+            return wager > 0 ? wager : null;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
     private void sendFailed(Player player, String reason) {
         player.sendMessage(MiniMessageSupport.parse(MiniMessageSupport.prefixed(
                 i18n.t("command.failed", Map.of("reason", MiniMessageSupport.escape(reason)))
@@ -214,15 +271,6 @@ public final class ModeSelectionDialogGui {
             }
         }
         return reason;
-    }
-
-    private String rootMessage(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        String message = current.getMessage();
-        return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
     }
 
     private TableMode parseMode(String raw) {

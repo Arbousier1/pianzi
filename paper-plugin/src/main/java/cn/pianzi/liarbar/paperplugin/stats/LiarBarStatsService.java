@@ -1,6 +1,10 @@
 package cn.pianzi.liarbar.paperplugin.stats;
 
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asUuid;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asString;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asBoolean;
+import static cn.pianzi.liarbar.paperplugin.util.ExceptionUtils.rootMessage;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -573,48 +577,4 @@ public final class LiarBarStatsService implements AutoCloseable {
         recentSeasonIds = List.copyOf(updated);
     }
 
-    private UUID asUuid(Object value) {
-        if (value instanceof UUID uuid) {
-            return uuid;
-        }
-        if (value instanceof String text) {
-            try {
-                return UUID.fromString(text);
-            } catch (IllegalArgumentException ignored) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    private Boolean asBoolean(Object value) {
-        if (value instanceof Boolean bool) {
-            return bool;
-        }
-        if (value instanceof String text) {
-            if ("true".equalsIgnoreCase(text)) {
-                return true;
-            }
-            if ("false".equalsIgnoreCase(text)) {
-                return false;
-            }
-        }
-        return null;
-    }
-
-    private String asString(Object value) {
-        if (value == null) {
-            return null;
-        }
-        return String.valueOf(value);
-    }
-
-    private String rootMessage(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        String message = current.getMessage();
-        return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
-    }
 }

@@ -14,6 +14,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asInt;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asUuid;
+
 public final class DatapackParityRewardService {
 
     private final JavaPlugin plugin;
@@ -61,34 +64,6 @@ public final class DatapackParityRewardService {
         for (ItemStack item : leftovers.values()) {
             player.getWorld().dropItemNaturally(player.getLocation(), item);
         }
-    }
-
-    private UUID asUuid(Object raw) {
-        if (raw instanceof UUID uuid) {
-            return uuid;
-        }
-        if (raw instanceof String text) {
-            try {
-                return UUID.fromString(text);
-            } catch (IllegalArgumentException ex) {
-                plugin.getLogger().fine("Invalid winner UUID in reward event: " + text);
-            }
-        }
-        return null;
-    }
-
-    private int asInt(Object raw, int fallback) {
-        if (raw instanceof Number number) {
-            return number.intValue();
-        }
-        if (raw instanceof String text) {
-            try {
-                return Integer.parseInt(text);
-            } catch (NumberFormatException ignored) {
-                return fallback;
-            }
-        }
-        return fallback;
     }
 
     private int clampPositive(int value, int max) {

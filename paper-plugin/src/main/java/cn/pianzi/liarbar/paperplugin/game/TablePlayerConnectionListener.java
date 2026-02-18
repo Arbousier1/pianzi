@@ -2,6 +2,7 @@ package cn.pianzi.liarbar.paperplugin.game;
 
 import cn.pianzi.liarbar.paper.application.TableApplicationService;
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
+import static cn.pianzi.liarbar.paperplugin.util.ExceptionUtils.rootMessage;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerKickEvent;
@@ -65,15 +66,6 @@ public final class TablePlayerConnectionListener implements Listener {
 
     private void applyEvents(List<UserFacingEvent> events) {
         eventSink.accept(events);
-    }
-
-    private String rootMessage(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        String message = current.getMessage();
-        return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
     }
 
     private boolean isTableNotFound(Throwable throwable) {

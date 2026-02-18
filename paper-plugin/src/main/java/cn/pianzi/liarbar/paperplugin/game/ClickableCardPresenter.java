@@ -2,6 +2,8 @@ package cn.pianzi.liarbar.paperplugin.game;
 
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
 import cn.pianzi.liarbar.paperplugin.i18n.I18n;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asUuid;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asString;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -156,15 +158,4 @@ public final class ClickableCardPresenter {
         };
     }
 
-    private UUID asUuid(Object raw) {
-        if (raw instanceof UUID uuid) return uuid;
-        if (raw instanceof String text) {
-            try { return UUID.fromString(text); } catch (IllegalArgumentException ignored) {}
-        }
-        return null;
-    }
-
-    private String asString(Object raw) {
-        return raw != null ? String.valueOf(raw) : null;
-    }
 }

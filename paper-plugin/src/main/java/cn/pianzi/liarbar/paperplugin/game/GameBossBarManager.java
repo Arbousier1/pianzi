@@ -15,6 +15,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asInt;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asString;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asUuid;
+
 /**
  * Per-player boss bar showing bullets remaining, hand size, main rank, and current turn.
  * Updated reactively from UserFacingEvents.
@@ -307,23 +311,4 @@ public final class GameBossBarManager {
         return tablePlayerSets.getOrDefault(tableId, java.util.Set.of());
     }
 
-    private UUID asUuid(Object raw) {
-        if (raw instanceof UUID uuid) return uuid;
-        if (raw instanceof String text) {
-            try { return UUID.fromString(text); } catch (IllegalArgumentException ignored) {}
-        }
-        return null;
-    }
-
-    private String asString(Object raw) {
-        return raw != null ? String.valueOf(raw) : null;
-    }
-
-    private int asInt(Object raw, int fallback) {
-        if (raw instanceof Number n) return n.intValue();
-        if (raw instanceof String s) {
-            try { return Integer.parseInt(s); } catch (NumberFormatException ignored) {}
-        }
-        return fallback;
-    }
 }

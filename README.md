@@ -26,4 +26,4 @@ Command:
 
 After a successful build, the Paper plugin jar is generated at:
 
-`paper-plugin/build/libs/liar-bar-paper-plugin-1.0.0-SNAPSHOT.jar`
+`paper-plugin/build/libs/liar-bar-paper-plugin-2.0.0-SNAPSHOT.jar`

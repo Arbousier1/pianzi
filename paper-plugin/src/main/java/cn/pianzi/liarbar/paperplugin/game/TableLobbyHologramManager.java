@@ -21,6 +21,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asInt;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asString;
+
 /**
  * Lobby hologram shown above the table center before the game starts.
  * Mirrors datapack-style "how to play / waiting for players / selected mode" hints.
@@ -278,24 +281,6 @@ public final class TableLobbyHologramManager {
                 center.getBlockY() + HOLOGRAM_Y_OFFSET,
                 center.getBlockZ() + 0.5D
         );
-    }
-
-    private String asString(Object raw) {
-        return raw != null ? String.valueOf(raw) : null;
-    }
-
-    private int asInt(Object raw, int fallback) {
-        if (raw instanceof Number number) {
-            return number.intValue();
-        }
-        if (raw instanceof String text) {
-            try {
-                return Integer.parseInt(text);
-            } catch (NumberFormatException ignored) {
-                return fallback;
-            }
-        }
-        return fallback;
     }
 
     private GamePhase asPhase(Object raw) {

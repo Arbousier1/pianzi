@@ -23,6 +23,9 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asString;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asUuid;
+
 /**
  * Visual/audio effects manager driven by UserFacingEvents.
  */
@@ -188,20 +191,4 @@ public final class GameEffectsManager {
         // no-op
     }
 
-    private UUID asUuid(Object raw) {
-        if (raw instanceof UUID uuid) {
-            return uuid;
-        }
-        if (raw instanceof String text) {
-            try {
-                return UUID.fromString(text);
-            } catch (IllegalArgumentException ignored) {
-            }
-        }
-        return null;
-    }
-
-    private String asString(Object raw) {
-        return raw != null ? String.valueOf(raw) : null;
-    }
 }

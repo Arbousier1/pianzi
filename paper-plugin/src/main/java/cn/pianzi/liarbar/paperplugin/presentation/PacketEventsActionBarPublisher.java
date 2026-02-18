@@ -5,6 +5,9 @@ import cn.pianzi.liarbar.paper.presentation.PacketEventsPublisher;
 import cn.pianzi.liarbar.paper.presentation.UserFacingEvent;
 import cn.pianzi.liarbar.paperplugin.game.TableSeatManager;
 import cn.pianzi.liarbar.paperplugin.i18n.I18n;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asUuid;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asString;
+import static cn.pianzi.liarbar.paperplugin.util.ExceptionUtils.rootMessage;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerActionBar;
 import net.kyori.adventure.text.Component;
@@ -161,22 +164,6 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
         }
     }
 
-    private UUID asUuid(Object raw) {
-        if (raw instanceof UUID uuid) {
-            return uuid;
-        }
-        if (raw instanceof String text) {
-            try {
-                return UUID.fromString(text);
-            } catch (IllegalArgumentException ignored) {
-            }
-        }
-        return null;
-    }
-
-    private String asString(Object raw) {
-        return raw != null ? String.valueOf(raw) : null;
-    }
 
     private void publishToPlayer(Player player, UserFacingEvent event) {
         Map<String, Object> localizedData = localizePlayerPlaceholders(event.data());
@@ -228,6 +215,10 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
         }
         HashMap<String, Object> data = HashMap.newHashMap(original.size() + 4);
         data.putAll(original);
+        // Common alias for i18n templates that use {table}
+        if (data.containsKey("tableId") && !data.containsKey("table")) {
+            data.put("table", data.get("tableId"));
+        }
         localizePlayerField(data, "player", original.get("playerId"));
         localizePlayerField(data, "winner", original.get("winner"));
         localizePlayerField(data, "challenger", original.get("challenger"));
@@ -262,15 +253,6 @@ public final class PacketEventsActionBarPublisher implements PacketEventsPublish
         }
         String text = id.toString();
         return text.substring(0, 8);
-    }
-
-    private String rootMessage(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        String message = current.getMessage();
-        return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
     }
 
     private record SentFingerprint(String fingerprint, long sentAtMillis) {

@@ -2,6 +2,7 @@ package cn.pianzi.liarbar.paperplugin.command;
 
 import cn.pianzi.liarbar.core.domain.TableMode;
 import cn.pianzi.liarbar.core.domain.GamePhase;
+import static cn.pianzi.liarbar.paperplugin.util.ExceptionUtils.rootMessage;
 import cn.pianzi.liarbar.core.snapshot.GameSnapshot;
 import cn.pianzi.liarbar.core.snapshot.PlayerSnapshot;
 import cn.pianzi.liarbar.paper.command.CommandOutcome;
@@ -188,11 +189,25 @@ public final class LiarBarCommandExecutor implements TabExecutor {
                     }
 
                     dispatchOutcome(sender, commandFacade.join(tableId, player.getUniqueId()), outcome -> {
-                        if (outcome.success()
-                                && snapshot.phase() == GamePhase.MODE_SELECTION
-                                && snapshot.owner().isEmpty()) {
-                            modeSelectionGui.open(player, tableId);
+                        if (!outcome.success()) {
+                            return;
                         }
+                        commandFacade.snapshot(tableId).whenComplete((afterJoin, afterJoinErr) ->
+                                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                                    if (afterJoinErr != null) {
+                                        send(sender, MiniMessageSupport.prefixed(i18n.t("command.failed", Map.of(
+                                                "reason", MiniMessageSupport.escape(localizedReason(afterJoinErr))
+                                        ))));
+                                        return;
+                                    }
+                                    if (afterJoin.phase() == GamePhase.MODE_SELECTION
+                                            && afterJoin.owner().filter(owner -> owner.equals(player.getUniqueId())).isPresent()) {
+                                        modeSelectionGui.open(player, tableId);
+                                    } else if (afterJoin.phase() == GamePhase.MODE_SELECTION) {
+                                        send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.wait_for_host")));
+                                    }
+                                })
+                        );
                     });
                 })
         );
@@ -840,15 +855,6 @@ public final class LiarBarCommandExecutor implements TabExecutor {
 
     private boolean equalsIgnoreCase(String a, String b) {
         return a != null && b != null && a.equalsIgnoreCase(b);
-    }
-
-    private String rootMessage(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        String message = current.getMessage();
-        return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
     }
 
     private String localizedReason(Throwable throwable) {

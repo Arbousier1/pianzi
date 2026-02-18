@@ -1,5 +1,6 @@
 package cn.pianzi.liarbar.paperplugin.integration.packet;
 
+import static cn.pianzi.liarbar.paperplugin.util.ExceptionUtils.rootMessage;
 import com.github.retrooper.packetevents.PacketEvents;
 import io.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -64,12 +65,4 @@ public final class PacketEventsLifecycle {
         return ready;
     }
 
-    private String rootMessage(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        String message = current.getMessage();
-        return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
-    }
 }

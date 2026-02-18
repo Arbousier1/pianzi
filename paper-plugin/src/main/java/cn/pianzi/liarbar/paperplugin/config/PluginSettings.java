@@ -2,6 +2,8 @@ package cn.pianzi.liarbar.paperplugin.config;
 
 import cn.pianzi.liarbar.paperplugin.stats.RankTier;
 import cn.pianzi.liarbar.paperplugin.stats.ScoreRule;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asInt;
+import static cn.pianzi.liarbar.paperplugin.util.EventDataAccessor.asString;
 import org.bukkit.configuration.file.FileConfiguration;
 
 import java.time.ZoneId;
@@ -98,27 +100,6 @@ public record PluginSettings(
                 new RankTier(1000, "骗局大师"),
                 new RankTier(1800, "传说骗子")
         );
-    }
-
-    private static int asInt(Object value, int fallback) {
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        if (value instanceof String text) {
-            try {
-                return Integer.parseInt(text);
-            } catch (NumberFormatException ignored) {
-                return fallback;
-            }
-        }
-        return fallback;
-    }
-
-    private static String asString(Object value) {
-        if (value == null) {
-            return null;
-        }
-        return String.valueOf(value);
     }
 
     private static String nonBlank(String value, String fallback) {
