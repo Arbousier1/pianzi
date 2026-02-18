@@ -183,12 +183,8 @@ public final class LiarBarCommandExecutor implements TabExecutor {
 
                     boolean joined = snapshot.players().stream().anyMatch(p -> p.playerId().equals(player.getUniqueId()));
                     if (snapshot.phase() == GamePhase.MODE_SELECTION && joined) {
-                        if (snapshot.owner().filter(owner -> owner.equals(player.getUniqueId())).isPresent()) {
-                            send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.reopen_mode_gui")));
-                            modeSelectionGui.open(player, tableId);
-                        } else {
-                            send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.wait_for_host")));
-                        }
+                        send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.reopen_mode_gui")));
+                        modeSelectionGui.open(player, tableId);
                         return;
                     }
 
@@ -219,10 +215,12 @@ public final class LiarBarCommandExecutor implements TabExecutor {
                                         return;
                                     }
                                     if (afterJoin.phase() == GamePhase.MODE_SELECTION
-                                            && afterJoin.owner().filter(owner -> owner.equals(player.getUniqueId())).isPresent()) {
+                                            && afterJoin.players().stream().anyMatch(p -> p.playerId().equals(player.getUniqueId()))) {
                                         modeSelectionGui.open(player, tableId);
                                     } else if (afterJoin.phase() == GamePhase.MODE_SELECTION) {
-                                        send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.wait_for_host")));
+                                        send(sender, MiniMessageSupport.prefixed(i18n.t("command.join.must_be_seated", Map.of(
+                                                "table", MiniMessageSupport.escape(tableId)
+                                        ))));
                                     }
                                 })
                         );
@@ -879,6 +877,9 @@ public final class LiarBarCommandExecutor implements TabExecutor {
         String reason = rootMessage(throwable);
         if ("insufficient_balance".equals(reason)) {
             return i18n.t("command.join.insufficient_balance");
+        }
+        if ("player_not_joined".equals(reason)) {
+            return i18n.t("command.join.must_be_seated_generic");
         }
         if ("only_host_can_select_mode".equals(reason)) {
             return i18n.t("command.mode.host_only");

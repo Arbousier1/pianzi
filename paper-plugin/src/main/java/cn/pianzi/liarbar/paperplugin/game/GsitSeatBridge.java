@@ -60,30 +60,46 @@ final class GsitSeatBridge {
         try {
             ClassLoader loader = gsit.getClass().getClassLoader();
             Class<?> apiClass = Class.forName("dev.geco.gsit.api.GSitAPI", false, loader);
-            Class<?> seatClass = Class.forName("dev.geco.gsit.model.Seat", false, loader);
-            Class<?> stopReasonClass = Class.forName("dev.geco.gsit.model.StopReason", false, loader);
-
-            Method getSeatByEntity = apiClass.getMethod("getSeatByEntity", LivingEntity.class);
-            Method removeSeat = apiClass.getMethod("removeSeat", seatClass, stopReasonClass);
-            Method createSeat = apiClass.getMethod(
-                    "createSeat",
-                    Block.class,
-                    LivingEntity.class,
-                    boolean.class,
-                    double.class,
-                    double.class,
-                    double.class,
-                    float.class,
-                    boolean.class
+            Class<?> seatClass = firstAvailableClass(loader,
+                    "dev.geco.gsit.model.Seat",
+                    "dev.geco.gsit.objects.GSeat"
             );
-            Method getSeatsByBlock = apiClass.getMethod("getSeatsByBlock", Block.class);
+            Class<?> stopReasonClass = firstAvailableClass(loader,
+                    "dev.geco.gsit.model.StopReason",
+                    "dev.geco.gsit.objects.GetUpReason"
+            );
 
-            Method seatGetEntity = seatClass.getMethod("getEntity");
-            Method seatGetBlock = seatClass.getMethod("getBlock");
+            Method getSeatByEntity = firstAvailableMethod(
+                    apiClass,
+                    new String[]{"getSeatByEntity"},
+                    new Class<?>[]{LivingEntity.class},
+                    new Class<?>[]{Player.class}
+            );
+            Method removeSeat = apiClass.getMethod("removeSeat", seatClass, stopReasonClass);
+            Method createSeat = firstAvailableMethod(
+                    apiClass,
+                    new String[]{"createSeat"},
+                    new Class<?>[]{Block.class, LivingEntity.class, boolean.class, double.class, double.class, double.class, float.class, boolean.class},
+                    new Class<?>[]{Block.class, Player.class, boolean.class, double.class, double.class, double.class, float.class, boolean.class}
+            );
+            Method getSeatsByBlock = firstAvailableMethod(
+                    apiClass,
+                    new String[]{"getSeatsByBlock", "getSeats"},
+                    new Class<?>[]{Block.class}
+            );
+
+            Method seatGetEntity = firstAvailableMethod(
+                    seatClass,
+                    new String[]{"getEntity", "getPlayer"}
+            );
+            Method seatGetBlock = firstAvailableMethod(
+                    seatClass,
+                    new String[]{"getBlock"}
+            );
 
             @SuppressWarnings("unchecked")
             Class<? extends Enum> enumType = (Class<? extends Enum>) stopReasonClass.asSubclass(Enum.class);
-            Object stopReasonPlugin = Enum.valueOf(enumType, "PLUGIN");
+            Object stopReasonPlugin = enumConstantOrFirst(enumType, "PLUGIN");
 
             return Optional.of(new GsitSeatBridge(
                     plugin,
@@ -98,6 +114,57 @@ final class GsitSeatBridge {
         } catch (Throwable throwable) {
             plugin.getLogger().log(Level.WARNING, "Detected GSit but failed to bind API, fallback to native seats.", throwable);
             return Optional.empty();
+        }
+    }
+
+    private static Class<?> firstAvailableClass(ClassLoader loader, String... names) throws ClassNotFoundException {
+        ClassNotFoundException last = null;
+        for (String name : names) {
+            try {
+                return Class.forName(name, false, loader);
+            } catch (ClassNotFoundException ex) {
+                last = ex;
+            }
+        }
+        throw Objects.requireNonNull(last, "no class name candidates provided");
+    }
+
+    private static Method firstAvailableMethod(
+            Class<?> type,
+            String[] names,
+            Class<?>[]... signatures
+    ) throws NoSuchMethodException {
+        NoSuchMethodException last = null;
+        for (String name : names) {
+            for (Class<?>[] signature : signatures) {
+                try {
+                    return type.getMethod(name, signature);
+                } catch (NoSuchMethodException ex) {
+                    last = ex;
+                }
+            }
+        }
+        if (signatures.length == 0) {
+            for (String name : names) {
+                try {
+                    return type.getMethod(name);
+                } catch (NoSuchMethodException ex) {
+                    last = ex;
+                }
+            }
+        }
+        throw Objects.requireNonNull(last, "no method candidates provided");
+    }
+
+    private static Object enumConstantOrFirst(Class<? extends Enum> enumType, String constantName) {
+        try {
+            return Enum.valueOf(enumType, constantName);
+        } catch (IllegalArgumentException ignored) {
+            Object[] values = enumType.getEnumConstants();
+            if (values == null || values.length == 0) {
+                throw new IllegalStateException("No enum constants in " + enumType.getName());
+            }
+            return values[0];
         }
     }
 

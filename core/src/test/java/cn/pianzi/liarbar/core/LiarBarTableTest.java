@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LiarBarTableTest {
     @Test
-    void shouldAllowJoinBeforeModeSelectionAndAssignHost() {
+    void shouldAllowJoinBeforeModeSelection() {
         LiarBarTable table = new LiarBarTable(
                 "auto",
                 testConfig(),
@@ -40,8 +40,8 @@ class LiarBarTableTest {
 
         assertEquals(GamePhase.MODE_SELECTION, table.snapshot().phase());
         assertEquals(1, table.snapshot().joinedCount());
-        assertEquals(host, table.snapshot().owner().orElseThrow());
-        assertTrue(containsEvent(events, CoreEventType.HOST_ASSIGNED));
+        assertTrue(table.snapshot().owner().isEmpty());
+        assertTrue(!containsEvent(events, CoreEventType.HOST_ASSIGNED));
     }
 
     @Test
@@ -138,7 +138,7 @@ class LiarBarTableTest {
     }
 
     @Test
-    void shouldResetModeSelectionTimerWhenHostJoins() {
+    void shouldResetModeSelectionTimerWhenPlayerJoins() {
         TableConfig config = new TableConfig(
                 2,
                 20,
@@ -167,7 +167,7 @@ class LiarBarTableTest {
         GameSnapshot snapshot = table.snapshot();
         assertEquals(GamePhase.MODE_SELECTION, snapshot.phase());
         assertEquals(1, snapshot.joinedCount());
-        assertEquals(host, snapshot.owner().orElseThrow());
+        assertTrue(snapshot.owner().isEmpty());
     }
 
     @Test

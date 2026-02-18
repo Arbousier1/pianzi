@@ -96,8 +96,9 @@ public final class LiarBarTable {
         Objects.requireNonNull(actor, "actor");
         Objects.requireNonNull(selectedMode, "selectedMode");
         ensurePhase(GamePhase.MODE_SELECTION, "select mode");
-        if (!Objects.equals(ownerId, actor)) {
-            throw new IllegalStateException("only_host_can_select_mode");
+        PlayerState selector = players.get(actor);
+        if (selector == null || !selector.alive) {
+            throw new IllegalStateException("player_not_joined");
         }
 
         List<CoreEvent> events = new ArrayList<>();
@@ -175,12 +176,8 @@ public final class LiarBarTable {
                         "maxPlayers", config.maxPlayers()
                 )
         ));
-        if (ownerId == null) {
-            ownerId = playerId;
-            events.add(hostAssignedEvent(playerId, null, "first_join"));
-        }
         if (phase == GamePhase.MODE_SELECTION) {
-            // A new host just sat down; restart mode-selection timeout window.
+            // A player just sat down; restart mode-selection timeout window.
             phaseSeconds = 0;
         }
 
@@ -221,10 +218,6 @@ public final class LiarBarTable {
         if (Objects.equals(afterGunCandidateId, playerId)) {
             afterGunCandidateId = null;
         }
-        if (Objects.equals(ownerId, playerId)) {
-            reassignOwner(events, playerId, "host_disconnected");
-        }
-
         events.add(CoreEvent.of(
                 CoreEventType.PLAYER_FORFEITED,
                 "player disconnected and forfeited",
@@ -758,10 +751,6 @@ public final class LiarBarTable {
         if (Objects.equals(afterGunCandidateId, state.id)) {
             afterGunCandidateId = null;
         }
-        if (Objects.equals(ownerId, state.id)) {
-            reassignOwner(events, state.id, "host_left_before_start");
-        }
-
         events.add(CoreEvent.of(
                 CoreEventType.PLAYER_FORFEITED,
                 "player left before game start",
@@ -798,35 +787,6 @@ public final class LiarBarTable {
         currentPlayerId = null;
         lastPlayerId = null;
         afterGunCandidateId = null;
-    }
-
-    private void reassignOwner(List<CoreEvent> events, UUID previousOwner, String reason) {
-        List<UUID> candidates = alivePlayersInSeatOrder();
-        if (candidates.isEmpty()) {
-            ownerId = null;
-            return;
-        }
-        UUID nextOwner = pickRandom(candidates);
-        if (nextOwner == null) {
-            ownerId = null;
-            return;
-        }
-        ownerId = nextOwner;
-        events.add(hostAssignedEvent(nextOwner, previousOwner, reason));
-    }
-
-    private CoreEvent hostAssignedEvent(UUID newOwner, UUID previousOwner, String reason) {
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("playerId", newOwner);
-        payload.put("reason", reason);
-        if (previousOwner != null) {
-            payload.put("previousOwner", previousOwner);
-        }
-        return CoreEvent.of(
-                CoreEventType.HOST_ASSIGNED,
-                "host assigned",
-                payload
-        );
     }
 
     private List<Card> createRoundDeck(CardRank selectedMain) {

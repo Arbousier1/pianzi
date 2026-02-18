@@ -178,11 +178,14 @@ public final class ModeSelectionDialogGui {
                         return;
                     }
                     if (snapshot.phase() != GamePhase.MODE_SELECTION) {
-                        sendFailed(player, i18n.t("command.join.wait_for_host"));
+                        sendFailed(player, "not_in_mode_selection");
                         return;
                     }
-                    if (snapshot.owner().isEmpty() || !snapshot.owner().get().equals(player.getUniqueId())) {
-                        sendFailed(player, i18n.t("command.mode.host_only"));
+                    boolean joined = snapshot.players().stream().anyMatch(p -> p.playerId().equals(player.getUniqueId()));
+                    if (!joined) {
+                        sendFailed(player, i18n.t("command.join.must_be_seated", Map.of(
+                                "table", MiniMessageSupport.escape(tableId)
+                        )));
                         return;
                     }
                     selectMode(player, tableId, mode, wager);
@@ -256,6 +259,9 @@ public final class ModeSelectionDialogGui {
     private String localizedReasonText(String reason) {
         if ("only_host_can_select_mode".equals(reason)) {
             return i18n.t("command.mode.host_only");
+        }
+        if ("player_not_joined".equals(reason)) {
+            return i18n.t("command.join.must_be_seated_generic");
         }
         if ("insufficient_balance".equals(reason)) {
             return "insufficient_balance";

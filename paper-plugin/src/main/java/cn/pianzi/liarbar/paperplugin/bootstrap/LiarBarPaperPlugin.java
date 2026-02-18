@@ -1,7 +1,6 @@
 package cn.pianzi.liarbar.paperplugin.bootstrap;
 
 import cn.pianzi.liarbar.core.config.TableConfig;
-import cn.pianzi.liarbar.core.domain.GamePhase;
 import cn.pianzi.liarbar.core.port.EconomyPort;
 import cn.pianzi.liarbar.core.port.RandomSource;
 import cn.pianzi.liarbar.core.snapshot.PlayerSnapshot;
@@ -19,6 +18,7 @@ import cn.pianzi.liarbar.paperplugin.game.DatapackParityRewardService;
 import cn.pianzi.liarbar.paperplugin.game.GameEffectsManager;
 import cn.pianzi.liarbar.paperplugin.game.GameBossBarManager;
 import cn.pianzi.liarbar.paperplugin.game.ModeSelectionDialogGui;
+import cn.pianzi.liarbar.paperplugin.game.TablePersistenceStore;
 import cn.pianzi.liarbar.paperplugin.game.TableLobbyHologramManager;
 import cn.pianzi.liarbar.paperplugin.game.TablePlayerConnectionListener;
 import cn.pianzi.liarbar.paperplugin.game.TableSeatInteractionListener;
@@ -76,6 +76,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
     private TableLobbyHologramManager lobbyHologramManager;
     private PacketEventsActionBarPublisher actionBarPublisher;
     private ModeSelectionDialogGui modeSelectionGui;
+    private TablePersistenceStore tablePersistenceStore;
     private StatsRepository statsRepository;
     private BukkitTask tickTask;
 
@@ -94,6 +95,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         i18n = new I18n(settings.localeTag(), settings.zoneId());
         MiniMessageSupport.setPrefix(i18n.t("ui.prefix"));
         tableConfig = TableConfigLoader.fromConfig(getConfig());
+        tablePersistenceStore = new TablePersistenceStore(getDataFolder().toPath());
         packetEventsLifecycle.init();
 
         VaultGateway vaultGateway = VaultGatewayFactory.fromServer(this)
@@ -158,14 +160,8 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         }
 
         // Persist table locations before tearing down structures
-        if (structureBuilder != null && statsRepository != null) {
-            try {
-                List<SavedTable> tables = structureBuilder.toSavedTables();
-                statsRepository.saveTables(tables);
-                getLogger().info("Saved " + tables.size() + " table(s) to database.");
-            } catch (Exception ex) {
-                getLogger().log(java.util.logging.Level.WARNING, "Failed to save table locations", ex);
-            }
+        if (structureBuilder != null) {
+            persistTables();
         }
 
         if (effectsManager != null) {
@@ -213,6 +209,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
             statsService = null;
         }
         statsRepository = null;
+        tablePersistenceStore = null;
         rewardService = null;
 
         if (packetEventsLifecycle != null) {
@@ -395,6 +392,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
             structureBuilder.build(tableId, player.getLocation());
             seatManager.spawnSeats(tableId);
             lobbyHologramManager.createTable(tableId);
+            persistTables();
         }
         return new LiarBarCommandExecutor.CreateTableResult(tableId, created);
     }
@@ -410,6 +408,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
             }
             seatManager.removeSeats(tableId);
             structureBuilder.demolish(tableId);
+            persistTables();
         }
         return removed;
     }
@@ -430,7 +429,7 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
 
     private void restoreSavedTables() {
         try {
-            List<SavedTable> saved = statsRepository.loadTables();
+            List<SavedTable> saved = loadPersistedTables();
             if (saved.isEmpty()) {
                 return;
             }
@@ -452,9 +451,54 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
                     restored++;
                 }
             }
-            getLogger().info("Restored " + restored + " table(s) from database.");
+            getLogger().info("Restored " + restored + " table(s) from persistence.");
         } catch (Exception ex) {
             getLogger().log(java.util.logging.Level.WARNING, "Failed to restore saved tables", ex);
+        }
+    }
+
+    private List<SavedTable> loadPersistedTables() {
+        List<SavedTable> dbSaved = List.of();
+        if (statsRepository != null) {
+            try {
+                dbSaved = statsRepository.loadTables();
+            } catch (Exception ex) {
+                getLogger().log(java.util.logging.Level.WARNING, "Failed to load table locations from database.", ex);
+            }
+        }
+        if (dbSaved != null && !dbSaved.isEmpty()) {
+            return dbSaved;
+        }
+        if (tablePersistenceStore == null) {
+            return List.of();
+        }
+        try {
+            List<SavedTable> fileSaved = tablePersistenceStore.load();
+            if (!fileSaved.isEmpty()) {
+                getLogger().info("Loaded " + fileSaved.size() + " table(s) from tables.json fallback.");
+            }
+            return fileSaved;
+        } catch (Exception ex) {
+            getLogger().log(java.util.logging.Level.WARNING, "Failed to load table locations from tables.json.", ex);
+            return List.of();
+        }
+    }
+
+    private void persistTables() {
+        List<SavedTable> tables = structureBuilder != null ? structureBuilder.toSavedTables() : List.of();
+        if (statsRepository != null) {
+            try {
+                statsRepository.saveTables(tables);
+            } catch (Exception ex) {
+                getLogger().log(java.util.logging.Level.WARNING, "Failed to save table locations to database.", ex);
+            }
+        }
+        if (tablePersistenceStore != null) {
+            try {
+                tablePersistenceStore.save(tables);
+            } catch (Exception ex) {
+                getLogger().log(java.util.logging.Level.WARNING, "Failed to save table locations to tables.json.", ex);
+            }
         }
     }
 
@@ -502,46 +546,6 @@ public final class LiarBarPaperPlugin extends JavaPlugin {
         }
         if (viewBridge != null) {
             viewBridge.publishAll(events);
-        }
-        maybeOpenModeSelectionDialogForHost(events);
-    }
-
-    private void maybeOpenModeSelectionDialogForHost(List<UserFacingEvent> events) {
-        if (modeSelectionGui == null || commandFacade == null) {
-            return;
-        }
-        for (UserFacingEvent event : events) {
-            if (!"HOST_ASSIGNED".equals(event.eventType())) {
-                continue;
-            }
-            Object hostRaw = event.data().get("playerId");
-            Object tableRaw = event.data().get("tableId");
-            if (!(hostRaw instanceof UUID hostId)) {
-                continue;
-            }
-            if (!(tableRaw instanceof String tableId) || tableId.isBlank()) {
-                continue;
-            }
-
-            Player host = getServer().getPlayer(hostId);
-            if (host == null || !host.isOnline()) {
-                continue;
-            }
-
-            commandFacade.snapshot(tableId).whenComplete((snapshot, throwable) ->
-                    getServer().getScheduler().runTask(this, () -> {
-                        if (throwable != null) {
-                            return;
-                        }
-                        if (snapshot.phase() != GamePhase.MODE_SELECTION) {
-                            return;
-                        }
-                        if (snapshot.owner().isEmpty() || !snapshot.owner().get().equals(hostId)) {
-                            return;
-                        }
-                        modeSelectionGui.open(host, tableId);
-                    })
-            );
         }
     }
 }
